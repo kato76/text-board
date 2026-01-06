@@ -13,7 +13,6 @@ body {
   font-family: sans-serif;
 }
 
-/* 初回だけの開始ボタン */
 #start {
   width: 100vw;
   height: 100vh;
@@ -23,15 +22,11 @@ body {
   border: none;
 }
 
-/* メイン表示 */
 #text {
   display: none;
   width: 100vw;
   height: 100vh;
-
-  /* ★ 安定する最大サイズ（15vwは使わない） */
-  font-size: clamp(6vw, 12vw, 14vw);
-
+  font-size: 12vw;        /* ★ 超大型文字 */
   text-align: center;
   padding: 5vw;
   box-sizing: border-box;
@@ -57,8 +52,8 @@ body {
 const SHEET_URL =
 "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
-const REMOTE_SEC = 40; // スマホ・PCからの文字表示（秒）
-const MIC_SEC    = 30; // タブレットの声→文字（秒）
+const REMOTE_SEC = 40; // ★ 遠隔メッセージ表示時間（秒）
+const MIC_SEC    = 30; // ★ マイク音声表示時間（秒）
 
 let lastText = "";
 let recognition = null;
@@ -78,13 +73,11 @@ document.getElementById("start").onclick = () => {
 };
 
 // ================================
-// 文字表示（共通）
+// 文字表示
 // ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
-
-  /* 表示時は最大サイズ */
-  t.style.fontSize = "clamp(6vw, 12vw, 14vw)";
+  t.style.fontSize = "12vw";
   t.innerText = msg;
 
   setTimeout(() => {
@@ -114,11 +107,10 @@ async function checkMessage() {
   }
 }
 
-/* 5秒ごとにチェック */
 setInterval(checkMessage, 5000);
 
 // ================================
-// マイク → 音声認識 → 文字
+// マイク → 文字
 // ================================
 function startMic() {
   const SpeechRecognition =
@@ -140,14 +132,13 @@ function startMic() {
     showText(text, MIC_SEC);
   };
 
-  /* エラー・終了時は静かに再起動（ピコピコ最小） */
   recognition.onerror = () => {
     recognition.stop();
-    setTimeout(startMic, 4000);
+    setTimeout(startMic, 3000);
   };
 
   recognition.onend = () => {
-    setTimeout(startMic, 3000);
+    setTimeout(startMic, 2000);
   };
 
   recognition.start();
