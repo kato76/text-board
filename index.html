@@ -47,10 +47,11 @@ const SHEET_URL =
 "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
 const REMOTE_SEC = 20; // 遠隔文字の表示秒
-const MIC_SEC = 15;    // マイク文字の表示秒
+const MIC_SEC    = 15; // マイク文字の表示秒
 
 let lastText = "";
 let recognition = null;
+let micActive = false;
 
 // ================================
 // 初回タップ
@@ -64,11 +65,11 @@ document.getElementById("start").onclick = () => {
   t.style.justifyContent = "center";
   t.innerText = "待機中";
 
-  startMic(); // マイク開始
+  startMic(); // マイク開始（1回だけ）
 };
 
 // ================================
-// 文字表示関数
+// 文字表示
 // ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
@@ -103,9 +104,12 @@ async function checkMessage() {
 setInterval(checkMessage, 5000);
 
 // ================================
-// マイク → 文字
+// マイク → 文字（静音安定版）
 // ================================
 function startMic() {
+  if (micActive) return; // 二重起動防止
+  micActive = true;
+
   const SpeechRecognition =
     window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -126,12 +130,14 @@ function startMic() {
   };
 
   recognition.onerror = () => {
-    recognition.stop();
-    setTimeout(startMic, 2000);
+    micActive = false;
+    // エラー時のみ、10秒後に再起動（ピコ最小化）
+    setTimeout(startMic, 10000);
   };
 
   recognition.onend = () => {
-    setTimeout(startMic, 1000);
+    // 無音終了時は再起動しない（ピコ防止）
+    micActive = false;
   };
 
   recognition.start();
