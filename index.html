@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>見守り文字ボード（長文対応）</title>
+<title>見守り文字ボード</title>
 
 <style>
 body {
@@ -26,12 +26,14 @@ body {
   display: none;
   width: 100vw;
   height: 100vh;
+  font-size: 10vw;        
   text-align: center;
   padding: 5vw;
   box-sizing: border-box;
   line-height: 1.2;
-  word-break: break-word;   /* ★ 長い単語も折り返す */
-  white-space: pre-wrap;    /* ★ 改行も反映 */
+  word-break: break-word;   /* 長い単語も折り返す */
+  white-space: pre-wrap;    /* 改行を尊重しつつ折り返す */
+  overflow-wrap: break-word;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -42,25 +44,25 @@ body {
 <body>
 
 <button id="start">画面をタップしてください</button>
-<div id="text">待機中</div>
+<div id="text"></div>
 
 <script>
-// ==================================
+// ================================
 // 設定
-// ==================================
+// ================================
 const SHEET_URL =
 "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
 const REMOTE_SEC = 40; // 遠隔メッセージ表示時間（秒）
-const MIC_SEC    = 15; // マイク文字表示時間（秒）
+const MIC_SEC    = 30; // マイク文字表示時間（秒）
 
 let lastText = "";
 let recognition = null;
 let micTimer = null;
 
-// ==================================
+// ================================
 // 初回タップ
-// ==================================
+// ================================
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
 
@@ -72,16 +74,18 @@ document.getElementById("start").onclick = () => {
   startMic(); // マイク開始
 };
 
-// ==================================
-// 文字表示関数（長文対応）
-// ==================================
+// ================================
+// 文字表示
+// ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
 
-  // 文字をセット
-  t.innerText = msg;
+  // スプレッドシート文字の改行対応
+  const displayMsg = msg.replace(/\r?\n/g, "\n");
 
-  // 長さに応じてフォントサイズ調整
+  t.innerText = displayMsg;
+
+  // 文字数に応じてフォントサイズ自動調整
   if (msg.length <= 20) {
     t.style.fontSize = "12vw";
   } else if (msg.length <= 40) {
@@ -89,10 +93,10 @@ function showText(msg, sec) {
   } else if (msg.length <= 80) {
     t.style.fontSize = "8vw";
   } else {
-    t.style.fontSize = "6vw"; // 長文は小さく
+    t.style.fontSize = "6vw";
   }
 
-  // 既存タイマークリア
+  // タイマーで待機中に戻す
   if (micTimer) clearTimeout(micTimer);
   micTimer = setTimeout(() => {
     t.style.fontSize = "6vw";
@@ -100,9 +104,9 @@ function showText(msg, sec) {
   }, sec * 1000);
 }
 
-// ==================================
+// ================================
 // スプレッドシート監視
-// ==================================
+// ================================
 async function checkMessage() {
   const t = document.getElementById("text");
   if (!t || t.style.display !== "flex") return;
@@ -122,11 +126,12 @@ async function checkMessage() {
 }
 setInterval(checkMessage, 5000);
 
-// ==================================
-// マイク → 文字（長文対応）
-// ==================================
+// ================================
+// マイク → 文字
+// ================================
 function startMic() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (!SpeechRecognition) {
     alert("この端末は音声認識に対応していません");
@@ -136,24 +141,23 @@ function startMic() {
   recognition = new SpeechRecognition();
   recognition.lang = "ja-JP";
   recognition.continuous = true;
-  recognition.interimResults = true; // ★途中結果も表示
+  recognition.interimResults = false;
 
   recognition.onresult = (event) => {
-    let text = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      text += event.results[i][0].transcript;
-    }
-    if (text.trim()) showText(text, MIC_SEC);
+    const text =
+      event.results[event.results.length - 1][0].transcript;
+
+    // 長文対応
+    showText(text, MIC_SEC);
   };
 
-  recognition.onerror = (event) => {
-    console.log("SpeechRecognition error:", event.error);
+  recognition.onerror = () => {
     recognition.stop();
-    setTimeout(startMic, 2000);
+    setTimeout(startMic, 3000);
   };
 
   recognition.onend = () => {
-    setTimeout(() => recognition.start(), 500); // 自動再起動
+    setTimeout(startMic, 2000);
   };
 
   recognition.start();
