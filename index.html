@@ -53,10 +53,11 @@ body {
 const SHEET_URL =
 "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
-const REMOTE_SEC = 40;
-const MIC_SEC    = 30;
+const REMOTE_SEC = 40; // 遠隔メッセージ表示時間（秒）
+const MIC_SEC    = 30; // マイク音声表示時間（秒）
 
-let lastText = "";
+let lastSheetText = "";
+let lastMicText   = "";
 let recognition = null;
 let displayTimer = null;
 
@@ -71,7 +72,7 @@ document.getElementById("start").onclick = () => {
   t.style.fontSize = "6vw";
   t.innerText = "待機中";
 
-  startMic();
+  startMic(); // マイク開始
 };
 
 // ================================
@@ -106,18 +107,17 @@ async function checkMessage() {
     const txt = await res.text();
     const msg = txt.trim();
 
-    // ★ 消されたら履歴も消す（重要）
+    // 空なら履歴リセット（消した文章は出ない）
     if (!msg) {
-      lastText = "";
+      lastSheetText = "";
       return;
     }
 
-    // ★ 新しい内容だけ表示
-    if (msg !== lastText) {
-      lastText = msg;
+    // 新しい文字だけ表示
+    if (msg !== lastSheetText) {
+      lastSheetText = msg;
       showText(msg, REMOTE_SEC);
     }
-
   } catch (e) {
     console.log("sheet error", e);
   }
@@ -145,7 +145,12 @@ function startMic() {
   recognition.onresult = (event) => {
     const text =
       event.results[event.results.length - 1][0].transcript;
-    showText(text, MIC_SEC);
+
+    // 前回と同じマイク文字は表示しない
+    if (text && text !== lastMicText) {
+      lastMicText = text;
+      showText(text, MIC_SEC);
+    }
   };
 
   recognition.onerror = () => {
