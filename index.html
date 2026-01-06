@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>見守り文字ボード</title>
+<title>見守り文字ボード（安定版）</title>
 
 <style>
 body {
@@ -26,17 +26,16 @@ body {
   display: none;
   width: 100vw;
   height: 100vh;
+  font-size: 12vw;
+  text-align: center;
   padding: 5vw;
   box-sizing: border-box;
+  line-height: 1.2;
+  word-break: keep-all;
 
   display: flex;
   align-items: center;
   justify-content: center;
-  text-align: center;
-
-  line-height: 1.2;
-  word-break: break-word;
-  white-space: pre-wrap;
 }
 </style>
 </head>
@@ -44,81 +43,68 @@ body {
 <body>
 
 <button id="start">画面をタップしてください</button>
-<div id="text"></div>
+<div id="text">待機中</div>
 
 <script>
-// ================================
+// ==================================
 // 設定
-// ================================
+// ==================================
 const SHEET_URL =
 "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
 const REMOTE_SEC = 40; // 遠隔メッセージ表示時間（秒）
-const MIC_SEC    = 30; // マイク音声表示時間（秒）
+const MIC_SEC    = 15; // マイク文字表示時間（秒）
 
-let shownSheetTexts = []; // スプレッドシートで表示済み文字
-let lastMicText = "";     // マイクで最後に表示した文字
+let lastText = "";
 let recognition = null;
-let displayTimer = null;
+let micTimer = null;
 
-// ================================
+// ==================================
 // 初回タップ
-// ================================
+// ==================================
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
 
   const t = document.getElementById("text");
   t.style.display = "flex";
-  t.style.fontSize = "6vw";
   t.innerText = "待機中";
 
   startMic(); // マイク開始
 };
 
-// ================================
-// 文字表示（自動サイズ）
-// ================================
+// ==================================
+// 文字表示関数
+// ==================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
-
-  clearTimeout(displayTimer);
-
-  // 文字数でサイズ調整
-  const len = msg.length;
-  if (len <= 20)       t.style.fontSize = "10vw";
-  else if (len <= 40)  t.style.fontSize = "8vw";
-  else if (len <= 80)  t.style.fontSize = "6vw";
-  else                 t.style.fontSize = "4.5vw";
-
+  t.style.fontSize = "12vw";
   t.innerText = msg;
 
-  displayTimer = setTimeout(() => {
+  // 既存タイマーがあればクリア
+  if (micTimer) clearTimeout(micTimer);
+
+  micTimer = setTimeout(() => {
     t.style.fontSize = "6vw";
     t.innerText = "待機中";
   }, sec * 1000);
 }
 
-// ================================
-// スプレッドシート監視（履歴自動リセット対応）
-// ================================
+// ==================================
+// スプレッドシート監視
+// ==================================
 async function checkMessage() {
+  const t = document.getElementById("text");
+  if (!t || t.style.display !== "flex") return;
+
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
     const txt = await res.text();
     const msg = txt.trim();
 
-    // 空なら履歴をリセット
-    if (!msg) {
-      shownSheetTexts = [];
-      return;
-    }
-
-    // まだ表示していない文章だけ表示
-    if (!shownSheetTexts.includes(msg)) {
-      shownSheetTexts.push(msg); // 履歴に追加
+    if (msg && msg !== lastText) {
+      lastText = msg;
       showText(msg, REMOTE_SEC);
     }
-
   } catch (e) {
     console.log("sheet error", e);
   }
@@ -126,12 +112,11 @@ async function checkMessage() {
 
 setInterval(checkMessage, 5000);
 
-// ================================
+// ==================================
 // マイク → 文字
-// ================================
+// ==================================
 function startMic() {
-  const SpeechRecognition =
-    window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (!SpeechRecognition) {
     alert("この端末は音声認識に対応していません");
@@ -141,26 +126,25 @@ function startMic() {
   recognition = new SpeechRecognition();
   recognition.lang = "ja-JP";
   recognition.continuous = true;
-  recognition.interimResults = false;
+  recognition.interimResults = true; // ★ 途中結果も表示
 
   recognition.onresult = (event) => {
-    const text =
-      event.results[event.results.length - 1][0].transcript;
-
-    // 前回と同じマイク文字は表示しない
-    if (text && text !== lastMicText) {
-      lastMicText = text;
-      showText(text, MIC_SEC);
+    let text = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      text += event.results[i][0].transcript;
     }
+    if (text.trim()) showText(text, MIC_SEC);
   };
 
-  recognition.onerror = () => {
+  recognition.onerror = (event) => {
+    console.log("SpeechRecognition error:", event.error);
     recognition.stop();
-    setTimeout(startMic, 3000);
+    setTimeout(startMic, 2000);
   };
 
   recognition.onend = () => {
-    setTimeout(startMic, 2000);
+    // 待機中でも自動再開
+    setTimeout(() => recognition.start(), 500);
   };
 
   recognition.start();
