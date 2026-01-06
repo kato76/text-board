@@ -35,10 +35,14 @@ body {
 <body>
 
 <button id="start">画面をタップしてください</button>
-
 <div id="text"></div>
 
 <script>
+// ★★★ ここに自分のCSV URLを貼る ★★★
+const SHEET_URL = "ここにCSVのURLを貼る";
+
+let lastText = "";
+
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
   const t = document.getElementById("text");
@@ -48,20 +52,29 @@ document.getElementById("start").onclick = () => {
   t.innerText = "待機中";
 };
 
-const params = new URLSearchParams(location.search);
-const msg = params.get("text");
-const sec = Number(params.get("sec")) || 10;
+async function checkMessage() {
+  try {
+    const res = await fetch(SHEET_URL + "&_=" + Date.now());
+    const txt = await res.text();
+    const msg = txt.trim();
 
-if (msg) {
-  const timer = setInterval(() => {
     const t = document.getElementById("text");
-    if (t.style.display === "flex") {
+    if (!t || t.style.display !== "flex") return;
+
+    if (msg && msg !== lastText) {
+      lastText = msg;
       t.innerText = msg;
-      setTimeout(() => t.innerText = "", sec * 1000);
-      clearInterval(timer);
+
+      setTimeout(() => {
+        t.innerText = "待機中";
+      }, 20000); // 20秒表示
     }
-  }, 500);
+  } catch (e) {
+    console.log(e);
+  }
 }
+
+setInterval(checkMessage, 5000); // 5秒ごと
 </script>
 
 </body>
