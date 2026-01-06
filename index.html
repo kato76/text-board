@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>見守り文字ボード（安定版）</title>
+<title>見守り文字ボード（長文対応）</title>
 
 <style>
 body {
@@ -26,13 +26,12 @@ body {
   display: none;
   width: 100vw;
   height: 100vh;
-  font-size: 12vw;
   text-align: center;
   padding: 5vw;
   box-sizing: border-box;
   line-height: 1.2;
-  word-break: keep-all;
-
+  word-break: break-word;   /* ★ 長い単語も折り返す */
+  white-space: pre-wrap;    /* ★ 改行も反映 */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -67,22 +66,34 @@ document.getElementById("start").onclick = () => {
 
   const t = document.getElementById("text");
   t.style.display = "flex";
+  t.style.fontSize = "6vw";
   t.innerText = "待機中";
 
   startMic(); // マイク開始
 };
 
 // ==================================
-// 文字表示関数
+// 文字表示関数（長文対応）
 // ==================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
-  t.style.fontSize = "12vw";
+
+  // 文字をセット
   t.innerText = msg;
 
-  // 既存タイマーがあればクリア
-  if (micTimer) clearTimeout(micTimer);
+  // 長さに応じてフォントサイズ調整
+  if (msg.length <= 20) {
+    t.style.fontSize = "12vw";
+  } else if (msg.length <= 40) {
+    t.style.fontSize = "10vw";
+  } else if (msg.length <= 80) {
+    t.style.fontSize = "8vw";
+  } else {
+    t.style.fontSize = "6vw"; // 長文は小さく
+  }
 
+  // 既存タイマークリア
+  if (micTimer) clearTimeout(micTimer);
   micTimer = setTimeout(() => {
     t.style.fontSize = "6vw";
     t.innerText = "待機中";
@@ -109,11 +120,10 @@ async function checkMessage() {
     console.log("sheet error", e);
   }
 }
-
 setInterval(checkMessage, 5000);
 
 // ==================================
-// マイク → 文字
+// マイク → 文字（長文対応）
 // ==================================
 function startMic() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -126,7 +136,7 @@ function startMic() {
   recognition = new SpeechRecognition();
   recognition.lang = "ja-JP";
   recognition.continuous = true;
-  recognition.interimResults = true; // ★ 途中結果も表示
+  recognition.interimResults = true; // ★途中結果も表示
 
   recognition.onresult = (event) => {
     let text = '';
@@ -143,8 +153,7 @@ function startMic() {
   };
 
   recognition.onend = () => {
-    // 待機中でも自動再開
-    setTimeout(() => recognition.start(), 500);
+    setTimeout(() => recognition.start(), 500); // 自動再起動
   };
 
   recognition.start();
