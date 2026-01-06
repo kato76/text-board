@@ -56,8 +56,8 @@ const SHEET_URL =
 const REMOTE_SEC = 40; // 遠隔メッセージ表示時間（秒）
 const MIC_SEC    = 30; // マイク音声表示時間（秒）
 
-let lastSheetText = "";
-let lastMicText   = "";
+let shownSheetTexts = []; // スプレッドシートで表示済み文字
+let lastMicText = "";     // マイクで最後に表示した文字
 let recognition = null;
 let displayTimer = null;
 
@@ -107,17 +107,14 @@ async function checkMessage() {
     const txt = await res.text();
     const msg = txt.trim();
 
-    // 空なら履歴リセット（消した文章は出ない）
-    if (!msg) {
-      lastSheetText = "";
-      return;
-    }
+    if (!msg) return; // 空なら何もしない
 
-    // 新しい文字だけ表示
-    if (msg !== lastSheetText) {
-      lastSheetText = msg;
+    // まだ表示していない文章だけ表示
+    if (!shownSheetTexts.includes(msg)) {
+      shownSheetTexts.push(msg); // 履歴に追加
       showText(msg, REMOTE_SEC);
     }
+
   } catch (e) {
     console.log("sheet error", e);
   }
