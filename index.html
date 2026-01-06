@@ -2,144 +2,82 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>見守り文字ボード</title>
-
+<title>音声待機画面</title>
 <style>
-body {
-  margin: 0;
-  background: black;
-  color: white;
-  font-family: sans-serif;
-}
+  body {
+    font-family: sans-serif;
+    text-align: center;
+    padding-top: 60px;
+  }
 
-#start {
-  width: 100vw;
-  height: 100vh;
-  font-size: 64px;
-  background: black;
-  color: white;
-  border: none;
-}
+  #start {
+    font-size: 28px;
+    padding: 30px 50px;
+  }
 
-#text {
-  display: none;
-  width: 100vw;
-  height: 100vh;
-  font-size: 72px;
-  text-align: center;
-  padding: 40px;
-  box-sizing: border-box;
-}
+  #status {
+    margin-top: 30px;
+    font-size: 22px;
+    color: green;
+  }
+
+  #text {
+    margin-top: 20px;
+    font-size: 26px;
+    color: black;
+  }
 </style>
 </head>
-
 <body>
 
 <button id="start">画面をタップしてください</button>
+
+<div id="status"></div>
 <div id="text"></div>
 
 <script>
-// ================================
-// 設定
-// ================================
-const SHEET_URL =
-"https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
+const SpeechRecognition =
+  window.SpeechRecognition || window.webkitSpeechRecognition;
 
-const REMOTE_SEC = 20; // 遠隔文字の表示秒
-const MIC_SEC    = 15; // マイク文字の表示秒
+let recognition;
+let started = false;
 
-let lastText = "";
-let recognition = null;
-let micActive = false;
-
-// ================================
-// 初回タップ
-// ================================
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
-
-  const t = document.getElementById("text");
-  t.style.display = "flex";
-  t.style.alignItems = "center";
-  t.style.justifyContent = "center";
-  t.innerText = "待機中";
-
-  startMic(); // マイク開始（1回だけ）
+  startMic();
 };
 
-// ================================
-// 文字表示
-// ================================
-function showText(msg, sec) {
-  const t = document.getElementById("text");
-  t.innerText = msg;
-
-  setTimeout(() => {
-    t.innerText = "待機中";
-  }, sec * 1000);
-}
-
-// ================================
-// スプレッドシート監視
-// ================================
-async function checkMessage() {
-  const t = document.getElementById("text");
-  if (!t || t.style.display !== "flex") return;
-
-  try {
-    const res = await fetch(SHEET_URL + "&_=" + Date.now());
-    const txt = await res.text();
-    const msg = txt.trim();
-
-    if (msg && msg !== lastText) {
-      lastText = msg;
-      showText(msg, REMOTE_SEC);
-    }
-  } catch (e) {
-    console.log("sheet error", e);
-  }
-}
-
-setInterval(checkMessage, 5000);
-
-// ================================
-// マイク → 文字（静音安定版）
-// ================================
 function startMic() {
-  if (micActive) return; // 二重起動防止
-  micActive = true;
-
-  const SpeechRecognition =
-    window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  if (!SpeechRecognition) {
-    alert("この端末は音声認識に対応していません");
-    return;
-  }
-
   recognition = new SpeechRecognition();
   recognition.lang = "ja-JP";
-  recognition.continuous = true;
-  recognition.interimResults = false;
+  recognition.continuous = true;        // ★ 連続認識
+  recognition.interimResults = true;    // ★ 認識中表示
 
-  recognition.onresult = (event) => {
-    const text =
-      event.results[event.results.length - 1][0].transcript;
-    showText(text, MIC_SEC);
+  recognition.onstart = () => {
+    document.getElementById("status").textContent = "🎤 マイク待機中…";
   };
 
-  recognition.onerror = () => {
-    micActive = false;
-    // エラー時のみ、10秒後に再起動（ピコ最小化）
-    setTimeout(startMic, 10000);
+  recognition.onresult = (event) => {
+    let text = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      text += event.results[i][0].transcript;
+    }
+    document.getElementById("text").textContent = text;
+  };
+
+  recognition.onerror = (e) => {
+    document.getElementById("status").textContent =
+      "⚠ マイクエラー: " + e.error;
   };
 
   recognition.onend = () => {
-    // 無音終了時は再起動しない（ピコ防止）
-    micActive = false;
+    // ★ 勝手に止まるので自動再開（ピコ音しない）
+    if (started) {
+      recognition.start();
+    }
   };
 
+  started = true;
   recognition.start();
 }
 </script>
