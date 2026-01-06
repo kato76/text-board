@@ -12,6 +12,7 @@ body {
   color: white;
   font-family: sans-serif;
 }
+
 #start {
   width: 100vw;
   height: 100vh;
@@ -20,6 +21,7 @@ body {
   color: white;
   border: none;
 }
+
 #text {
   display: none;
   width: 100vw;
@@ -38,44 +40,102 @@ body {
 <div id="text"></div>
 
 <script>
-// ★★★ ここに自分のCSV URLを貼る ★★★
-const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
+// ================================
+// 設定
+// ================================
+const SHEET_URL =
+"https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
+const REMOTE_SEC = 20; // 遠隔文字の表示秒
+const MIC_SEC = 15;    // マイク文字の表示秒
 
 let lastText = "";
+let recognition = null;
 
+// ================================
+// 初回タップ
+// ================================
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
+
   const t = document.getElementById("text");
   t.style.display = "flex";
   t.style.alignItems = "center";
   t.style.justifyContent = "center";
   t.innerText = "待機中";
+
+  startMic(); // マイク開始
 };
 
+// ================================
+// 文字表示関数
+// ================================
+function showText(msg, sec) {
+  const t = document.getElementById("text");
+  t.innerText = msg;
+
+  setTimeout(() => {
+    t.innerText = "待機中";
+  }, sec * 1000);
+}
+
+// ================================
+// スプレッドシート監視
+// ================================
 async function checkMessage() {
+  const t = document.getElementById("text");
+  if (!t || t.style.display !== "flex") return;
+
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
     const txt = await res.text();
     const msg = txt.trim();
 
-    const t = document.getElementById("text");
-    if (!t || t.style.display !== "flex") return;
-
     if (msg && msg !== lastText) {
       lastText = msg;
-      t.innerText = msg;
-
-      setTimeout(() => {
-        t.innerText = "待機中";
-      }, 20000); // 20秒表示
+      showText(msg, REMOTE_SEC);
     }
   } catch (e) {
-    console.log(e);
+    console.log("sheet error", e);
   }
 }
 
-setInterval(checkMessage, 5000); // 5秒ごと
+setInterval(checkMessage, 5000);
+
+// ================================
+// マイク → 文字
+// ================================
+function startMic() {
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    alert("この端末は音声認識に対応していません");
+    return;
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.lang = "ja-JP";
+  recognition.continuous = true;
+  recognition.interimResults = false;
+
+  recognition.onresult = (event) => {
+    const text =
+      event.results[event.results.length - 1][0].transcript;
+    showText(text, MIC_SEC);
+  };
+
+  recognition.onerror = () => {
+    recognition.stop();
+    setTimeout(startMic, 2000);
+  };
+
+  recognition.onend = () => {
+    setTimeout(startMic, 1000);
+  };
+
+  recognition.start();
+}
 </script>
 
 </body>
