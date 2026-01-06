@@ -1,37 +1,68 @@
 <!DOCTYPE html>
 <html lang="ja">
-<meta charset="utf-8">
-<title>掲示板</title>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>見守り文字ボード</title>
 
 <style>
-body{
-  margin:0;
-  background:black;
-  color:white;
-  font-size:80px;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  height:100vh;
-  text-align:center;
+body {
+  margin: 0;
+  background: black;
+  color: white;
+  font-family: sans-serif;
+}
+#start {
+  width: 100vw;
+  height: 100vh;
+  font-size: 64px;
+  background: black;
+  color: white;
+  border: none;
+}
+#text {
+  display: none;
+  width: 100vw;
+  height: 100vh;
+  font-size: 72px;
+  text-align: center;
+  padding: 40px;
+  box-sizing: border-box;
 }
 </style>
+</head>
 
-<div id="msg"></div>
+<body>
+
+<button id="start">画面をタップしてください</button>
+
+<div id="text"></div>
 
 <script>
-let timer;
+document.getElementById("start").onclick = () => {
+  document.getElementById("start").style.display = "none";
+  const t = document.getElementById("text");
+  t.style.display = "flex";
+  t.style.alignItems = "center";
+  t.style.justifyContent = "center";
+  t.innerText = "待機中";
+};
 
-// URL ?text=...&sec=30 で表示
-const p = new URLSearchParams(location.search);
-const text = p.get("text");
-const sec  = p.get("sec") || 30;
+const params = new URLSearchParams(location.search);
+const msg = params.get("text");
+const sec = Number(params.get("sec")) || 10;
 
-if(text){
-  document.getElementById("msg").innerText = decodeURIComponent(text);
-  timer = setTimeout(()=>{
-    document.getElementById("msg").innerText="";
-  }, sec*1000);
+if (msg) {
+  const timer = setInterval(() => {
+    const t = document.getElementById("text");
+    if (t.style.display === "flex") {
+      t.innerText = msg;
+      setTimeout(() => t.innerText = "", sec * 1000);
+      clearInterval(timer);
+    }
+  }, 500);
 }
 </script>
+
+</body>
 </html>
