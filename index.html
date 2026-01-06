@@ -99,7 +99,7 @@ function showText(msg, sec) {
 }
 
 // ================================
-// スプレッドシート監視
+// スプレッドシート監視（履歴自動リセット対応）
 // ================================
 async function checkMessage() {
   try {
@@ -107,7 +107,11 @@ async function checkMessage() {
     const txt = await res.text();
     const msg = txt.trim();
 
-    if (!msg) return; // 空なら何もしない
+    // 空なら履歴をリセット
+    if (!msg) {
+      shownSheetTexts = [];
+      return;
+    }
 
     // まだ表示していない文章だけ表示
     if (!shownSheetTexts.includes(msg)) {
