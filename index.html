@@ -26,16 +26,14 @@ body {
   display: none;
   width: 100vw;
   height: 100vh;
-  font-size: 10vw;
+  font-size: 6vw;
   text-align: center;
   padding: 5vw;
   box-sizing: border-box;
   line-height: 1.2;
-
   word-break: break-word;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-
   display: flex;
   align-items: center;
   justify-content: center;
@@ -48,11 +46,6 @@ body {
 <button id="start">画面をタップしてください</button>
 <div id="text"></div>
 
-<!-- 🔇 無音ループ（人には聞こえない） -->
-<audio id="silent" loop>
-  <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=">
-</audio>
-
 <script>
 // ================================
 // 設定
@@ -63,61 +56,38 @@ const SHEET_URL =
 const REMOTE_SEC = 40;
 const MIC_SEC    = 30;
 
+// ================================
+// 変数
+// ================================
 let lastText = "";
 let recognition = null;
 let micTimer = null;
-let wakeLock = null;
-
-// ================================
-// Wake Lock（画面スリープ防止）
-// ================================
-async function keepScreenOn() {
-  try {
-    wakeLock = await navigator.wakeLock.request("screen");
-    console.log("Wake Lock 有効");
-  } catch (e) {
-    console.log("Wake Lock 失敗", e);
-  }
-}
+let lastMicTime = Date.now();
 
 // ================================
 // 初回タップ
 // ================================
-document.getElementById("start").onclick = async () => {
+document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
 
   const t = document.getElementById("text");
   t.style.display = "flex";
-  t.style.fontSize = "6vw";
   t.innerText = "待機中";
-
-  // 🔋 スリープ対策
-  keepScreenOn();
-
-  // 🔇 無音再生（マイク安定化）
-  document.getElementById("silent").play().catch(()=>{});
 
   startMic();
 };
 
 // ================================
-// 文字表示
+// 表示処理
 // ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
-  const displayMsg = msg.replace(/\r?\n/g, "\n");
-  t.innerText = displayMsg;
+  t.innerText = msg.replace(/\r?\n/g, "\n");
 
-  // 文字数で自動縮小
-  if (msg.length <= 20) {
-    t.style.fontSize = "12vw";
-  } else if (msg.length <= 40) {
-    t.style.fontSize = "10vw";
-  } else if (msg.length <= 80) {
-    t.style.fontSize = "8vw";
-  } else {
-    t.style.fontSize = "6vw";
-  }
+  if (msg.length <= 20)      t.style.fontSize = "12vw";
+  else if (msg.length <=40) t.style.fontSize = "10vw";
+  else if (msg.length <=80) t.style.fontSize = "8vw";
+  else                      t.style.fontSize = "6vw";
 
   if (micTimer) clearTimeout(micTimer);
   micTimer = setTimeout(() => {
@@ -149,7 +119,7 @@ async function checkMessage() {
 setInterval(checkMessage, 5000);
 
 // ================================
-// マイク → 文字
+// マイク開始（完全安全版）
 // ================================
 function startMic() {
   const SpeechRecognition =
@@ -160,31 +130,51 @@ function startMic() {
     return;
   }
 
+  if (recognition) {
+    try { recognition.stop(); } catch(e) {}
+    recognition = null;
+  }
+
   recognition = new SpeechRecognition();
   recognition.lang = "ja-JP";
-  recognition.continuous = true;
+  recognition.continuous = false;   // ← 安定重視
   recognition.interimResults = false;
 
   recognition.onresult = (event) => {
-    const text =
-      event.results[event.results.length - 1][0].transcript.trim();
-
-    if (text) {
-      showText(text, MIC_SEC);
-    }
+    lastMicTime = Date.now();
+    const text = event.results[0][0].transcript;
+    showText(text, MIC_SEC);
   };
 
   recognition.onerror = () => {
-    recognition.stop();
-    setTimeout(startMic, 3000);
+    try { recognition.stop(); } catch(e) {}
   };
 
   recognition.onend = () => {
-    setTimeout(startMic, 2000);
+    setTimeout(() => startMic(), 1000);
   };
 
   recognition.start();
 }
+
+// ================================
+// マイク黙死監視（最重要）
+// ================================
+setInterval(() => {
+  const now = Date.now();
+
+  if (now - lastMicTime > 60000) {
+    console.log("マイク無反応 → 再起動");
+    try {
+      if (recognition) recognition.stop();
+    } catch (e) {}
+
+    setTimeout(() => {
+      startMic();
+      lastMicTime = Date.now();
+    }, 1000);
+  }
+}, 5000);
 </script>
 
 </body>
