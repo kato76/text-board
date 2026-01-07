@@ -26,14 +26,15 @@ body {
   display: none;
   width: 100vw;
   height: 100vh;
-  font-size: 6vw;
   text-align: center;
   padding: 5vw;
   box-sizing: border-box;
-  line-height: 1.2;
+  line-height: 1.25;
+
   word-break: break-word;
   white-space: pre-wrap;
   overflow-wrap: break-word;
+
   display: flex;
   align-items: center;
   justify-content: center;
@@ -48,133 +49,137 @@ body {
 
 <script>
 // ================================
-// 設定
+// ★ 設定（URLだけ必ず確認）
 // ================================
-const SHEET_URL =
+
+// 読み取り（表示用）
+const SHEET_READ_URL =
 "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
-const REMOTE_SEC = 40;
-const MIC_SEC    = 30;
+// 書き込み（Apps Script）
+const SHEET_WRITE_URL =
+"https://script.google.com/macros/s/AKfycby2pdOTb3E73mzqr8U3-juUUdNVb2A_xKuADCbhKun3cuVikPL4UDuPnHxEEZdOkN4u/exec";
+
+const REMOTE_SEC = 40; // シート文字表示秒
+const MIC_SEC    = 30; // マイク文字表示秒
 
 // ================================
-// 変数
-// ================================
-let lastText = "";
-let recognition = null;
-let micTimer = null;
-let lastMicTime = Date.now();
+let lastSheetText = "";
+let lastMicText   = "";
+let recognition   = null;
+let displayTimer  = null;
 
 // ================================
-// 初回タップ
+// 初回タップ（必須）
 // ================================
-document.getElementById("start").onclick = () => {
+document.getElementById("start").onclick = async () => {
   document.getElementById("start").style.display = "none";
 
   const t = document.getElementById("text");
   t.style.display = "flex";
+  t.style.fontSize = "6vw";
   t.innerText = "待機中";
+
+  // 省電力対策（対応端末のみ）
+  if ("wakeLock" in navigator) {
+    try {
+      await navigator.wakeLock.request("screen");
+    } catch (e) {}
+  }
 
   startMic();
 };
 
 // ================================
-// 表示処理
+// 表示処理（共通）
 // ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
-  t.innerText = msg.replace(/\r?\n/g, "\n");
+  t.innerText = msg;
 
-  if (msg.length <= 20)      t.style.fontSize = "12vw";
-  else if (msg.length <=40) t.style.fontSize = "10vw";
-  else if (msg.length <=80) t.style.fontSize = "8vw";
-  else                      t.style.fontSize = "6vw";
+  // 文字数で自動サイズ
+  const len = msg.length;
+  if (len <= 20) t.style.fontSize = "12vw";
+  else if (len <= 40) t.style.fontSize = "10vw";
+  else if (len <= 80) t.style.fontSize = "8vw";
+  else t.style.fontSize = "6vw";
 
-  if (micTimer) clearTimeout(micTimer);
-  micTimer = setTimeout(() => {
+  if (displayTimer) clearTimeout(displayTimer);
+  displayTimer = setTimeout(() => {
     t.style.fontSize = "6vw";
     t.innerText = "待機中";
   }, sec * 1000);
 }
 
 // ================================
-// スプレッドシート監視
+// スプレッドシート監視（PC・共通）
 // ================================
-async function checkMessage() {
-  const t = document.getElementById("text");
-  if (!t || t.style.display !== "flex") return;
-
+async function checkSheet() {
   try {
-    const res = await fetch(SHEET_URL + "&_=" + Date.now());
-    const txt = await res.text();
-    const msg = txt.trim();
+    const res = await fetch(SHEET_READ_URL + "&_=" + Date.now());
+    const txt = (await res.text()).trim();
 
-    if (msg && msg !== lastText) {
-      lastText = msg;
-      showText(msg, REMOTE_SEC);
-    }
+    if (!txt) return;
+    if (txt === lastSheetText) return; // ★ 再表示防止
+
+    lastSheetText = txt;
+    showText(txt, REMOTE_SEC);
+
   } catch (e) {
-    console.log("sheet error", e);
+    console.log("sheet read error", e);
   }
 }
-setInterval(checkMessage, 5000);
+setInterval(checkSheet, 5000);
 
 // ================================
-// マイク開始（完全安全版）
+// シートへ書き込み（タブレット）
+// ================================
+function sendToSheet(text) {
+  fetch(SHEET_WRITE_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  }).catch(() => {});
+}
+
+// ================================
+// マイク音声認識
 // ================================
 function startMic() {
-  const SpeechRecognition =
-    window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  if (!SpeechRecognition) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
     alert("この端末は音声認識に対応していません");
     return;
   }
 
-  if (recognition) {
-    try { recognition.stop(); } catch(e) {}
-    recognition = null;
-  }
-
-  recognition = new SpeechRecognition();
+  recognition = new SR();
   recognition.lang = "ja-JP";
-  recognition.continuous = false;   // ← 安定重視
+  recognition.continuous = true;
   recognition.interimResults = false;
 
   recognition.onresult = (event) => {
-    lastMicTime = Date.now();
-    const text = event.results[0][0].transcript;
-    showText(text, MIC_SEC);
+    const text = event.results[event.results.length - 1][0].transcript.trim();
+
+    if (!text) return;
+    if (text === lastMicText) return; // ★ 同じ発話防止
+
+    lastMicText = text;
+
+    showText(text, MIC_SEC);  // タブレット表示
+    sendToSheet(text);        // ★ PCへ送信
   };
 
   recognition.onerror = () => {
-    try { recognition.stop(); } catch(e) {}
+    recognition.stop();
+    setTimeout(startMic, 3000);
   };
 
   recognition.onend = () => {
-    setTimeout(() => startMic(), 1000);
+    setTimeout(startMic, 1500);
   };
 
   recognition.start();
 }
-
-// ================================
-// マイク黙死監視（最重要）
-// ================================
-setInterval(() => {
-  const now = Date.now();
-
-  if (now - lastMicTime > 60000) {
-    console.log("マイク無反応 → 再起動");
-    try {
-      if (recognition) recognition.stop();
-    } catch (e) {}
-
-    setTimeout(() => {
-      startMic();
-      lastMicTime = Date.now();
-    }, 1000);
-  }
-}, 5000);
 </script>
 
 </body>
