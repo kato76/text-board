@@ -26,14 +26,16 @@ body {
   display: none;
   width: 100vw;
   height: 100vh;
-  font-size: 10vw;        
+  font-size: 10vw;
   text-align: center;
   padding: 5vw;
   box-sizing: border-box;
   line-height: 1.2;
-  word-break: break-word;   /* 長い単語も折り返す */
-  white-space: pre-wrap;    /* 改行を尊重しつつ折り返す */
+
+  word-break: break-word;
+  white-space: pre-wrap;
   overflow-wrap: break-word;
+
   display: flex;
   align-items: center;
   justify-content: center;
@@ -46,6 +48,11 @@ body {
 <button id="start">画面をタップしてください</button>
 <div id="text"></div>
 
+<!-- 🔇 無音ループ（人には聞こえない） -->
+<audio id="silent" loop>
+  <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=">
+</audio>
+
 <script>
 // ================================
 // 設定
@@ -53,17 +60,30 @@ body {
 const SHEET_URL =
 "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
-const REMOTE_SEC = 40; // 遠隔メッセージ表示時間（秒）
-const MIC_SEC    = 30; // マイク文字表示時間（秒）
+const REMOTE_SEC = 40;
+const MIC_SEC    = 30;
 
 let lastText = "";
 let recognition = null;
 let micTimer = null;
+let wakeLock = null;
+
+// ================================
+// Wake Lock（画面スリープ防止）
+// ================================
+async function keepScreenOn() {
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    console.log("Wake Lock 有効");
+  } catch (e) {
+    console.log("Wake Lock 失敗", e);
+  }
+}
 
 // ================================
 // 初回タップ
 // ================================
-document.getElementById("start").onclick = () => {
+document.getElementById("start").onclick = async () => {
   document.getElementById("start").style.display = "none";
 
   const t = document.getElementById("text");
@@ -71,7 +91,13 @@ document.getElementById("start").onclick = () => {
   t.style.fontSize = "6vw";
   t.innerText = "待機中";
 
-  startMic(); // マイク開始
+  // 🔋 スリープ対策
+  keepScreenOn();
+
+  // 🔇 無音再生（マイク安定化）
+  document.getElementById("silent").play().catch(()=>{});
+
+  startMic();
 };
 
 // ================================
@@ -79,13 +105,10 @@ document.getElementById("start").onclick = () => {
 // ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
-
-  // スプレッドシート文字の改行対応
   const displayMsg = msg.replace(/\r?\n/g, "\n");
-
   t.innerText = displayMsg;
 
-  // 文字数に応じてフォントサイズ自動調整
+  // 文字数で自動縮小
   if (msg.length <= 20) {
     t.style.fontSize = "12vw";
   } else if (msg.length <= 40) {
@@ -96,7 +119,6 @@ function showText(msg, sec) {
     t.style.fontSize = "6vw";
   }
 
-  // タイマーで待機中に戻す
   if (micTimer) clearTimeout(micTimer);
   micTimer = setTimeout(() => {
     t.style.fontSize = "6vw";
@@ -145,10 +167,11 @@ function startMic() {
 
   recognition.onresult = (event) => {
     const text =
-      event.results[event.results.length - 1][0].transcript;
+      event.results[event.results.length - 1][0].transcript.trim();
 
-    // 長文対応
-    showText(text, MIC_SEC);
+    if (text) {
+      showText(text, MIC_SEC);
+    }
   };
 
   recognition.onerror = () => {
