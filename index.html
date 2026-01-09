@@ -1,206 +1,127 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>見守り文字ボード</title>
 
 <style>
-body {
+html, body {
   margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
   background: black;
   color: white;
-  font-family: sans-serif;
+  font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
 }
 
-#start {
-  width: 100vw;
-  height: 100vh;
-  font-size: 8vw;
-  background: black;
-  color: white;
-  border: none;
+#container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
 }
 
 #text {
-  display: none;
-  width: 100vw;
-  height: 100vh;
-  font-size: 6vw;
+  font-size: 8vw;
   text-align: center;
-  padding: 5vw;
-  box-sizing: border-box;
-  line-height: 1.2;
-  word-break: break-word;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  padding: 2vw;
+  line-height: 1.4;
+}
+
+#status {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  font-size: 14px;
+  color: #0f0;
+  opacity: 0.8;
 }
 </style>
 </head>
 
 <body>
-
-<button id="start">画面をタップしてください</button>
-<div id="text"></div>
+<div id="container">
+  <div id="text">画面を一度タップしてください</div>
+</div>
+<div id="status">待機中</div>
 
 <script>
-// ================================
-// 設定
-// ================================
-const SHEET_URL =
-"https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
+/* ===== 音声認識 初期化 ===== */
+const SpeechRecognition =
+  window.SpeechRecognition || window.webkitSpeechRecognition;
 
-const REMOTE_SEC = 40;
-const MIC_SEC    = 30;
+if (!SpeechRecognition) {
+  document.getElementById("text").innerText =
+    "このブラウザは音声認識に対応していません";
+  throw new Error("SpeechRecognition not supported");
+}
 
-// ================================
-// 変数
-// ================================
-let lastText = "";
-let recognition = null;
-let micTimer = null;
-let lastMicTime = Date.now();
-let micAliveTime = Date.now();
+const recognition = new SpeechRecognition();
 
-// ================================
-// 初回タップ
-// ================================
-document.getElementById("start").onclick = () => {
-  document.getElementById("start").style.display = "none";
+recognition.lang = "ja-JP";
+recognition.continuous = true;
+recognition.interimResults = false;
 
-  const t = document.getElementById("text");
-  t.style.display = "flex";
-  t.innerText = "待機中";
+const textEl = document.getElementById("text");
+const statusEl = document.getElementById("status");
 
-  startMic();
+let recognizing = false;
+
+/* ===== 認識結果 ===== */
+recognition.onresult = (event) => {
+  const result = event.results[event.results.length - 1][0].transcript;
+  textEl.innerText = result;
+  statusEl.innerText = "認識中";
 };
 
-// ================================
-// 表示処理
-// ================================
-function showText(msg, sec) {
-  const t = document.getElementById("text");
-  t.innerText = msg.replace(/\r?\n/g, "\n");
+/* ===== エラー時：必ず復帰 ===== */
+recognition.onerror = (event) => {
+  console.error("Speech error:", event.error);
+  statusEl.innerText = "エラー → 再起動";
+  recognizing = false;
+  setTimeout(startRecognition, 800);
+};
 
-  if (msg.length <= 20)      t.style.fontSize = "12vw";
-  else if (msg.length <=40) t.style.fontSize = "10vw";
-  else if (msg.length <=80) t.style.fontSize = "8vw";
-  else                      t.style.fontSize = "6vw";
+/* ===== 勝手に止まった時：必ず復帰 ===== */
+recognition.onend = () => {
+  console.log("Speech end → restart");
+  statusEl.innerText = "再起動中";
+  recognizing = false;
+  setTimeout(startRecognition, 500);
+};
 
-  if (micTimer) clearTimeout(micTimer);
-  micTimer = setTimeout(() => {
-    t.style.fontSize = "6vw";
-    t.innerText = "待機中";
-  }, sec * 1000);
-}
-
-// ================================
-// スプレッドシート監視
-// ================================
-async function checkMessage() {
-  const t = document.getElementById("text");
-  if (!t || t.style.display !== "flex") return;
-
-  try {
-    const res = await fetch(SHEET_URL + "&_=" + Date.now());
-    const txt = await res.text();
-    const msg = txt.trim();
-
-    if (msg && msg !== lastText) {
-      lastText = msg;
-      showText(msg, REMOTE_SEC);
-    }
-  } catch (e) {
-    console.log("sheet error", e);
-  }
-}
-setInterval(checkMessage, 5000);
-
-// ================================
-// マイク開始（無音耐性版）
-// ================================
-function startMic() {
-  const SpeechRecognition =
-    window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  if (!SpeechRecognition) {
-    alert("この端末は音声認識に対応していません");
-    return;
-  }
-
-  // 完全に作り直す
-  recognition = new SpeechRecognition();
-  recognition.lang = "ja-JP";
-  recognition.continuous = true;     // ★最重要
-  recognition.interimResults = false;
-
-  recognition.onstart = () => {
-    micAliveTime = Date.now();
-    console.log("mic start");
-  };
-
-  recognition.onresult = (event) => {
-    lastMicTime = Date.now();
-    micAliveTime = Date.now();
-
-    const text = event.results[event.results.length - 1][0].transcript;
-    showText(text, MIC_SEC);
-  };
-
-  recognition.onerror = (e) => {
-    console.log("mic error", e);
-    try { recognition.stop(); } catch(e) {}
-  };
-
-  recognition.onend = () => {
-    console.log("mic end → 再生成");
-    recognition = null;
-    setTimeout(startMic, 500);
-  };
-
+/* ===== 開始関数 ===== */
+function startRecognition() {
+  if (recognizing) return;
   try {
     recognition.start();
-  } catch(e) {
-    console.log("start error", e);
+    recognizing = true;
+    statusEl.innerText = "待機中";
+  } catch (e) {
+    // start多重呼び出し対策
+    console.warn("start skipped");
   }
 }
 
-// ================================
-// 黙死監視（60秒）
-// ================================
+/* ===== ユーザー操作が必須（初回のみ） ===== */
+document.body.addEventListener(
+  "click",
+  () => {
+    textEl.innerText = "聞き取り中…";
+    startRecognition();
+  },
+  { once: true }
+);
+
+/* ===== 保険：定期リフレッシュ ===== */
 setInterval(() => {
-  const now = Date.now();
-
-  if (now - micAliveTime > 60000) {
-    console.log("マイク黙死検出 → 強制再起動");
-
-    try {
-      if (recognition) recognition.stop();
-    } catch(e) {}
-
-    recognition = null;
-    micAliveTime = Date.now();
-    setTimeout(startMic, 1000);
+  if (!recognizing) {
+    console.log("watchdog restart");
+    startRecognition();
   }
-}, 5000);
-
-// ================================
-// 定期強制リフレッシュ（3分）
-// ================================
-setInterval(() => {
-  console.log("定期マイクリフレッシュ");
-
-  try {
-    if (recognition) recognition.stop();
-  } catch(e) {}
-
-  recognition = null;
-  setTimeout(startMic, 1000);
-}, 180000);
+}, 10000);
 </script>
-
 </body>
 </html>
