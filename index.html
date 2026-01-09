@@ -26,16 +26,14 @@ body {
   display: none;
   width: 100vw;
   height: 100vh;
+  font-size: 6vw;
   text-align: center;
   padding: 5vw;
   box-sizing: border-box;
-  line-height: 1.3;
-
-  /* ★ 長文対策（重要） */
+  line-height: 1.2;
   word-break: break-word;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-
   display: flex;
   align-items: center;
   justify-content: center;
@@ -52,18 +50,20 @@ body {
 // ================================
 // 設定
 // ================================
-const SHEET_READ_URL =
+const SHEET_URL =
 "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
-const SHEET_WRITE_URL =
-"https://script.google.com/macros/s/AKfycby2pdOTb3E73mzqr8U3-juUUdNVb2A_xKuADCbhKun3cuVikPL4UDuPnHxEEZdOkN4u/exec";
+const REMOTE_SEC = 40;
+const MIC_SEC    = 30;
 
-const REMOTE_SEC = 40; // シート文字の表示時間
-const MIC_SEC    = 30; // マイク文字の表示時間
-
-let lastSheetText = "";
+// ================================
+// 変数
+// ================================
+let lastText = "";
 let recognition = null;
-let clearTimer = null;
+let micTimer = null;
+let lastMicTime = Date.now();
+let micAliveTime = Date.now();
 
 // ================================
 // 初回タップ
@@ -73,57 +73,54 @@ document.getElementById("start").onclick = () => {
 
   const t = document.getElementById("text");
   t.style.display = "flex";
-  showText("待機中", 0);
+  t.innerText = "待機中";
 
   startMic();
 };
 
 // ================================
-// 文字表示（共通）
+// 表示処理
 // ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
-  t.innerText = msg;
+  t.innerText = msg.replace(/\r?\n/g, "\n");
 
-  // ★ 文字数でフォント自動調整
-  const len = msg.length;
-  if (len <= 20) t.style.fontSize = "12vw";
-  else if (len <= 40) t.style.fontSize = "10vw";
-  else if (len <= 80) t.style.fontSize = "8vw";
-  else t.style.fontSize = "6vw";
+  if (msg.length <= 20)      t.style.fontSize = "12vw";
+  else if (msg.length <=40) t.style.fontSize = "10vw";
+  else if (msg.length <=80) t.style.fontSize = "8vw";
+  else                      t.style.fontSize = "6vw";
 
-  if (clearTimer) clearTimeout(clearTimer);
-  if (sec > 0) {
-    clearTimer = setTimeout(() => {
-      t.style.fontSize = "6vw";
-      t.innerText = "待機中";
-    }, sec * 1000);
-  }
+  if (micTimer) clearTimeout(micTimer);
+  micTimer = setTimeout(() => {
+    t.style.fontSize = "6vw";
+    t.innerText = "待機中";
+  }, sec * 1000);
 }
 
 // ================================
-// スプレッドシート監視（PC・タブレット共通）
+// スプレッドシート監視
 // ================================
-async function checkSheet() {
+async function checkMessage() {
+  const t = document.getElementById("text");
+  if (!t || t.style.display !== "flex") return;
+
   try {
-    const res = await fetch(SHEET_READ_URL + "&_=" + Date.now());
+    const res = await fetch(SHEET_URL + "&_=" + Date.now());
     const txt = await res.text();
     const msg = txt.trim();
 
-    // ★ 空 or 同じ内容は無視
-    if (!msg || msg === lastSheetText) return;
-
-    lastSheetText = msg;
-    showText(msg, REMOTE_SEC);
-
+    if (msg && msg !== lastText) {
+      lastText = msg;
+      showText(msg, REMOTE_SEC);
+    }
   } catch (e) {
     console.log("sheet error", e);
   }
 }
-setInterval(checkSheet, 5000);
+setInterval(checkMessage, 5000);
 
 // ================================
-// マイク → 文字 → シート
+// マイク開始（無音耐性版）
 // ================================
 function startMic() {
   const SpeechRecognition =
@@ -134,38 +131,75 @@ function startMic() {
     return;
   }
 
+  // 完全に作り直す
   recognition = new SpeechRecognition();
   recognition.lang = "ja-JP";
-  recognition.continuous = true;
+  recognition.continuous = true;     // ★最重要
   recognition.interimResults = false;
 
-  recognition.onresult = (event) => {
-    const text =
-      event.results[event.results.length - 1][0].transcript.trim();
-
-    if (!text) return;
-
-    showText(text, MIC_SEC);
-
-    // ★ シートへ送信
-    fetch(SHEET_WRITE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text })
-    }).catch(err => console.log(err));
+  recognition.onstart = () => {
+    micAliveTime = Date.now();
+    console.log("mic start");
   };
 
-  // ★ Android安定化（重要）
-  recognition.onerror = () => {
-    recognition.stop();
+  recognition.onresult = (event) => {
+    lastMicTime = Date.now();
+    micAliveTime = Date.now();
+
+    const text = event.results[event.results.length - 1][0].transcript;
+    showText(text, MIC_SEC);
+  };
+
+  recognition.onerror = (e) => {
+    console.log("mic error", e);
+    try { recognition.stop(); } catch(e) {}
   };
 
   recognition.onend = () => {
-    setTimeout(startMic, 1000);
+    console.log("mic end → 再生成");
+    recognition = null;
+    setTimeout(startMic, 500);
   };
 
-  recognition.start();
+  try {
+    recognition.start();
+  } catch(e) {
+    console.log("start error", e);
+  }
 }
+
+// ================================
+// 黙死監視（60秒）
+// ================================
+setInterval(() => {
+  const now = Date.now();
+
+  if (now - micAliveTime > 60000) {
+    console.log("マイク黙死検出 → 強制再起動");
+
+    try {
+      if (recognition) recognition.stop();
+    } catch(e) {}
+
+    recognition = null;
+    micAliveTime = Date.now();
+    setTimeout(startMic, 1000);
+  }
+}, 5000);
+
+// ================================
+// 定期強制リフレッシュ（3分）
+// ================================
+setInterval(() => {
+  console.log("定期マイクリフレッシュ");
+
+  try {
+    if (recognition) recognition.stop();
+  } catch(e) {}
+
+  recognition = null;
+  setTimeout(startMic, 1000);
+}, 180000);
 </script>
 
 </body>
