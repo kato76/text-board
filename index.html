@@ -37,7 +37,6 @@ html, body {
   right: 10px;
   font-size: 14px;
   color: #0f0;
-  opacity: 0.8;
 }
 </style>
 </head>
@@ -49,133 +48,123 @@ html, body {
 </div>
 <div id="status">未開始</div>
 
-<!-- ============================= -->
-<!-- 無音ループ（OSキープ用） -->
-<!-- ============================= -->
+<!-- 無音ループ -->
 <audio id="keepalive" loop>
-  <!-- 超短・無音WAV -->
   <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=">
 </audio>
 
 <script>
-/* ============================= */
-/* 音声認識 初期化 */
-/* ============================= */
-const SpeechRecognition =
-  window.SpeechRecognition || window.webkitSpeechRecognition;
+/* ============================
+   スプレッドシート設定
+============================ */
+const SHEET_URL =
+"https://docs.google.com/spreadsheets/d/e/【←あなたのURL】/pub?gid=0&single=true&output=csv";
 
+const REMOTE_SEC = 40;
+
+/* ============================
+   共通DOM
+============================ */
 const textEl   = document.getElementById("text");
 const statusEl = document.getElementById("status");
 const keepalive = document.getElementById("keepalive");
 
+/* ============================
+   スプレッドシート監視
+============================ */
+let lastSheetText = "";
+
+async function checkSheet() {
+  try {
+    const res = await fetch(SHEET_URL + "&_=" + Date.now());
+    const txt = (await res.text()).trim();
+
+    if (txt && txt !== lastSheetText) {
+      lastSheetText = txt;
+      textEl.innerText = txt;
+      statusEl.innerText = "シート表示中";
+
+      setTimeout(() => {
+        statusEl.innerText = "待機中";
+      }, REMOTE_SEC * 1000);
+    }
+  } catch (e) {
+    console.log("sheet error");
+  }
+}
+
+setInterval(checkSheet, 5000);
+
+/* ============================
+   音声認識
+============================ */
+const SpeechRecognition =
+  window.SpeechRecognition || window.webkitSpeechRecognition;
+
 if (!SpeechRecognition) {
-  textEl.innerText = "この端末は音声認識に対応していません";
-  throw new Error("SpeechRecognition not supported");
+  textEl.innerText = "音声認識非対応端末";
+  throw new Error();
 }
 
 let recognition = null;
 let recognizing = false;
 let lastResultTime = Date.now();
 
-/* ============================= */
-/* 音声認識 作成 */
-/* ============================= */
 function createRecognition() {
   const r = new SpeechRecognition();
   r.lang = "ja-JP";
   r.continuous = true;
   r.interimResults = false;
 
-  r.onresult = (event) => {
+  r.onresult = (e) => {
     lastResultTime = Date.now();
-    const txt = event.results[event.results.length - 1][0].transcript;
-    textEl.innerText = txt;
-    statusEl.innerText = "認識中";
+    const t = e.results[e.results.length - 1][0].transcript;
+    textEl.innerText = t;
+    statusEl.innerText = "音声認識中";
   };
 
-  r.onerror = (e) => {
-    console.log("speech error:", e.error);
-    recognizing = false;
-    statusEl.innerText = "エラー";
-  };
-
-  r.onend = () => {
-    recognizing = false;
-    statusEl.innerText = "停止 → 再起動待ち";
-  };
+  r.onerror = () => recognizing = false;
+  r.onend   = () => recognizing = false;
 
   return r;
 }
 
-/* ============================= */
-/* 開始処理 */
-/* ============================= */
 function startRecognition() {
   if (recognizing) return;
-
-  if (recognition) {
-    try { recognition.stop(); } catch(e) {}
-    recognition = null;
-  }
 
   recognition = createRecognition();
 
   try {
-    // 無音ループ開始（最重要）
     keepalive.volume = 0.001;
     keepalive.play().catch(()=>{});
-
     recognition.start();
     recognizing = true;
     statusEl.innerText = "待機中";
-  } catch (e) {
-    console.warn("start failed");
-  }
+  } catch(e) {}
 }
 
-/* ============================= */
-/* 初回ユーザー操作（必須） */
-/* ============================= */
 document.body.addEventListener("click", () => {
   textEl.innerText = "聞き取り中…";
   startRecognition();
-}, { once: true });
+}, { once:true });
 
-/* ============================= */
-/* マイク完全死亡監視（②） */
-/* ============================= */
+/* ============================
+   マイク死亡監視
+============================ */
 setInterval(() => {
   const now = Date.now();
 
-  // 認識中なのに長時間結果ゼロ → 死亡疑い
   if (recognizing && now - lastResultTime > 60000) {
-    console.log("mic dead suspected");
     recognizing = false;
-
     textEl.innerText = "画面をタップしてください";
     statusEl.innerText = "マイク停止";
-
-    try {
-      recognition.stop();
-    } catch(e) {}
+    try { recognition.stop(); } catch(e){}
   }
 
-  // 復帰可能なら自動再開
   if (!recognizing && document.visibilityState === "visible") {
     startRecognition();
   }
-
 }, 15000);
-
-/* ============================= */
-/* 画面復帰対策 */
-/* ============================= */
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") {
-    statusEl.innerText = "復帰中";
-    startRecognition();
-  }
-});
 </script>
 
 </body>
