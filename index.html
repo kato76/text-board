@@ -13,7 +13,7 @@ html, body {
   height: 100%;
   background: black;
   color: white;
-  font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+  font-family: "Meiryo", sans-serif;
 }
 
 #container {
@@ -26,8 +26,9 @@ html, body {
 #text {
   font-size: 8vw;
   text-align: center;
-  padding: 2vw;
+  padding: 3vw;
   line-height: 1.4;
+  white-space: pre-wrap;
 }
 
 #status {
@@ -42,86 +43,140 @@ html, body {
 </head>
 
 <body>
+
 <div id="container">
   <div id="text">画面を一度タップしてください</div>
 </div>
-<div id="status">待機中</div>
+<div id="status">未開始</div>
+
+<!-- ============================= -->
+<!-- 無音ループ（OSキープ用） -->
+<!-- ============================= -->
+<audio id="keepalive" loop>
+  <!-- 超短・無音WAV -->
+  <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=">
+</audio>
 
 <script>
-/* ===== 音声認識 初期化 ===== */
+/* ============================= */
+/* 音声認識 初期化 */
+/* ============================= */
 const SpeechRecognition =
   window.SpeechRecognition || window.webkitSpeechRecognition;
 
+const textEl   = document.getElementById("text");
+const statusEl = document.getElementById("status");
+const keepalive = document.getElementById("keepalive");
+
 if (!SpeechRecognition) {
-  document.getElementById("text").innerText =
-    "このブラウザは音声認識に対応していません";
+  textEl.innerText = "この端末は音声認識に対応していません";
   throw new Error("SpeechRecognition not supported");
 }
 
-const recognition = new SpeechRecognition();
-
-recognition.lang = "ja-JP";
-recognition.continuous = true;
-recognition.interimResults = false;
-
-const textEl = document.getElementById("text");
-const statusEl = document.getElementById("status");
-
+let recognition = null;
 let recognizing = false;
+let lastResultTime = Date.now();
 
-/* ===== 認識結果 ===== */
-recognition.onresult = (event) => {
-  const result = event.results[event.results.length - 1][0].transcript;
-  textEl.innerText = result;
-  statusEl.innerText = "認識中";
-};
+/* ============================= */
+/* 音声認識 作成 */
+/* ============================= */
+function createRecognition() {
+  const r = new SpeechRecognition();
+  r.lang = "ja-JP";
+  r.continuous = true;
+  r.interimResults = false;
 
-/* ===== エラー時：必ず復帰 ===== */
-recognition.onerror = (event) => {
-  console.error("Speech error:", event.error);
-  statusEl.innerText = "エラー → 再起動";
-  recognizing = false;
-  setTimeout(startRecognition, 800);
-};
+  r.onresult = (event) => {
+    lastResultTime = Date.now();
+    const txt = event.results[event.results.length - 1][0].transcript;
+    textEl.innerText = txt;
+    statusEl.innerText = "認識中";
+  };
 
-/* ===== 勝手に止まった時：必ず復帰 ===== */
-recognition.onend = () => {
-  console.log("Speech end → restart");
-  statusEl.innerText = "再起動中";
-  recognizing = false;
-  setTimeout(startRecognition, 500);
-};
+  r.onerror = (e) => {
+    console.log("speech error:", e.error);
+    recognizing = false;
+    statusEl.innerText = "エラー";
+  };
 
-/* ===== 開始関数 ===== */
+  r.onend = () => {
+    recognizing = false;
+    statusEl.innerText = "停止 → 再起動待ち";
+  };
+
+  return r;
+}
+
+/* ============================= */
+/* 開始処理 */
+/* ============================= */
 function startRecognition() {
   if (recognizing) return;
+
+  if (recognition) {
+    try { recognition.stop(); } catch(e) {}
+    recognition = null;
+  }
+
+  recognition = createRecognition();
+
   try {
+    // 無音ループ開始（最重要）
+    keepalive.volume = 0.001;
+    keepalive.play().catch(()=>{});
+
     recognition.start();
     recognizing = true;
     statusEl.innerText = "待機中";
   } catch (e) {
-    // start多重呼び出し対策
-    console.warn("start skipped");
+    console.warn("start failed");
   }
 }
 
-/* ===== ユーザー操作が必須（初回のみ） ===== */
-document.body.addEventListener(
-  "click",
-  () => {
-    textEl.innerText = "聞き取り中…";
-    startRecognition();
-  },
-  { once: true }
-);
+/* ============================= */
+/* 初回ユーザー操作（必須） */
+/* ============================= */
+document.body.addEventListener("click", () => {
+  textEl.innerText = "聞き取り中…";
+  startRecognition();
+}, { once: true });
 
-/* ===== 保険：定期リフレッシュ ===== */
+/* ============================= */
+/* マイク完全死亡監視（②） */
+/* ============================= */
 setInterval(() => {
-  if (!recognizing) {
-    console.log("watchdog restart");
+  const now = Date.now();
+
+  // 認識中なのに長時間結果ゼロ → 死亡疑い
+  if (recognizing && now - lastResultTime > 60000) {
+    console.log("mic dead suspected");
+    recognizing = false;
+
+    textEl.innerText = "画面をタップしてください";
+    statusEl.innerText = "マイク停止";
+
+    try {
+      recognition.stop();
+    } catch(e) {}
+  }
+
+  // 復帰可能なら自動再開
+  if (!recognizing && document.visibilityState === "visible") {
     startRecognition();
   }
-}, 10000);
+
+}, 15000);
+
+/* ============================= */
+/* 画面復帰対策 */
+/* ============================= */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    statusEl.innerText = "復帰中";
+    startRecognition();
+  }
+});
 </script>
+
 </body>
 </html>
