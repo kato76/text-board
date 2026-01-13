@@ -58,11 +58,8 @@ body {
 const SHEET_URL =
 "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
-//const POST_URL =
-//"https://script.google.com/macros/s/AKfycbyKZ6syXJDIz0_PNLG-SkwsYDMzAG8tKcFDKNdv1WJW74uCOHFGDPKuuos4BmGUezu5UQ/exec";
-  const POST_URL =
+const POST_URL =
 "https://script.google.com/macros/s/AKfycbzTuAqX1MG4rsLBWZHHJH7BVFfRafkbTBhXmF6L7z5Ppcvyziw6MLxzLlJNzbu9909vxw/exec";
-
 
 const REMOTE_SEC = 40;
 const MIC_SEC    = 30;
@@ -111,7 +108,7 @@ function showText(msg, sec) {
 }
 
 // ================================
-// PC → タブレット（A1）
+// PC → タブレット（A1のみ表示）
 // ================================
 async function checkMessage() {
   const t = document.getElementById("text");
@@ -120,11 +117,25 @@ async function checkMessage() {
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
     const txt = await res.text();
-    const msg = txt.split("\n")[0]?.trim(); // A1のみ
 
-    if (msg && msg !== lastText) {
-      lastText = msg;
-      showText(msg, REMOTE_SEC);
+    // CSV 1行目 1列目（A1）だけ取得
+    const firstLine = txt.split("\n")[0] || "";
+    const a1 = firstLine
+      .split(",")[0]
+      .replace(/^"|"$/g, "")
+      .trim();
+
+    // A1が空 → 待機中
+    if (!a1) {
+      lastText = "";
+      t.innerText = "待機中";
+      return;
+    }
+
+    // 新しい内容だけ表示
+    if (a1 !== lastText) {
+      lastText = a1;
+      showText(a1, REMOTE_SEC);
     }
   } catch (e) {
     console.log("sheet error", e);
@@ -133,7 +144,7 @@ async function checkMessage() {
 setInterval(checkMessage, 5000);
 
 // ================================
-// タブレット → PC（A2）
+// タブレット → PC（B列へ送信）
 // ================================
 function sendToSheet(text) {
   fetch(POST_URL, {
@@ -147,7 +158,7 @@ function sendToSheet(text) {
 }
 
 // ================================
-// マイク開始（強化版）
+// マイク開始（強化・復活対応）
 // ================================
 function startMic() {
   const SpeechRecognition =
@@ -173,10 +184,7 @@ function startMic() {
     lastMicTime = Date.now();
     const text = event.results[0][0].transcript;
 
-    // 表示
     showText(text, MIC_SEC);
-
-    // ★ PCへ送信
     sendToSheet(text);
   };
 
