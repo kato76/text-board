@@ -46,19 +46,20 @@ body {
 <button id="start">画面をタップしてください</button>
 <div id="text"></div>
 
-<!-- ============================= -->
 <!-- 無音ループ（マイク保持用） -->
-<!-- ============================= -->
 <audio id="keepalive" loop>
   <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=">
 </audio>
 
 <script>
 // ================================
-// 設定（元のまま）
+// 設定
 // ================================
 const SHEET_URL =
 "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
+
+const POST_URL =
+"https://script.google.com/macros/s/AKfycbyKZ6syXJDIz0_PNLG-SkwsYDMzAG8tKcFDKNdv1WJW74uCOHFGDPKuuos4BmGUezu5UQ/exec";
 
 const REMOTE_SEC = 40;
 const MIC_SEC    = 30;
@@ -88,7 +89,7 @@ document.getElementById("start").onclick = () => {
 };
 
 // ================================
-// 表示処理（元のまま）
+// 表示処理
 // ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
@@ -107,7 +108,7 @@ function showText(msg, sec) {
 }
 
 // ================================
-// スプレッドシート監視（元のまま）
+// PC → タブレット（A1）
 // ================================
 async function checkMessage() {
   const t = document.getElementById("text");
@@ -116,7 +117,7 @@ async function checkMessage() {
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
     const txt = await res.text();
-    const msg = txt.trim();
+    const msg = txt.split("\n")[0]?.trim(); // A1のみ
 
     if (msg && msg !== lastText) {
       lastText = msg;
@@ -127,6 +128,20 @@ async function checkMessage() {
   }
 }
 setInterval(checkMessage, 5000);
+
+// ================================
+// タブレット → PC（A2）
+// ================================
+function sendToSheet(text) {
+  fetch(POST_URL, {
+    method: "POST",
+    mode: "no-cors",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ text })
+  });
+}
 
 // ================================
 // マイク開始（強化版）
@@ -154,7 +169,12 @@ function startMic() {
     micAlive = true;
     lastMicTime = Date.now();
     const text = event.results[0][0].transcript;
+
+    // 表示
     showText(text, MIC_SEC);
+
+    // ★ PCへ送信
+    sendToSheet(text);
   };
 
   recognition.onerror = () => {
@@ -164,39 +184,34 @@ function startMic() {
 
   recognition.onend = () => {
     micAlive = false;
-    setTimeout(() => startMic(), 1000);
+    setTimeout(startMic, 1000);
   };
 
   try {
-    // ★ 無音ループ開始（最重要）
     keepalive.volume = 0.001;
     keepalive.play().catch(()=>{});
-
     recognition.start();
     micAlive = true;
   } catch(e) {}
 }
 
 // ================================
-// マイク黙死監視（強化）
+// マイク黙死監視
 // ================================
 setInterval(() => {
   const now = Date.now();
 
-  // 完全に反応が無い → OSに殺された可能性
   if (micAlive && now - lastMicTime > 60000) {
-    console.log("マイク死亡疑い");
-
     micAlive = false;
     try { recognition.stop(); } catch(e) {}
 
-    const t = document.getElementById("text");
-    t.innerText = "何かしゃべってください。2回程。";
+    document.getElementById("text").innerText =
+      "何かしゃべってください\n2回ほど！";
   }
 }, 5000);
 
 // ================================
-// 画面復帰時対策
+// 画面復帰時
 // ================================
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !micAlive) {
