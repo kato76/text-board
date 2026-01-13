@@ -59,7 +59,7 @@ const MIC_SEC    = 30;
 // ================================
 // 変数
 // ================================
-let lastRowIndex = 0; // 表示済みA列行番号
+let lastText = ""; // 最後に表示したPC文章
 let recognition = null;
 let micTimer = null;
 let lastMicTime = Date.now();
@@ -74,9 +74,8 @@ document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
   const t = document.getElementById("text");
   t.style.display = "flex";
-  t.innerText = "待機中";
 
-  // タップ時にまずA列の最新をチェック
+  // タップした瞬間に A列最新を確認
   checkMessage();
 
   startMic();
@@ -90,9 +89,9 @@ function showText(msg, sec) {
   t.innerText = msg;
 
   if (msg.length <= 20)      t.style.fontSize = "12vw";
-  else if (msg.length <=40) t.style.fontSize = "10vw";
-  else if (msg.length <=80) t.style.fontSize = "8vw";
-  else                      t.style.fontSize = "6vw";
+  else if (msg.length <= 40)  t.style.fontSize = "10vw";
+  else if (msg.length <= 80)  t.style.fontSize = "8vw";
+  else                        t.style.fontSize = "6vw";
 
   if (micTimer) clearTimeout(micTimer);
   micTimer = setTimeout(() => {
@@ -110,25 +109,28 @@ async function checkMessage() {
     const csv = await res.text();
     const lines = csv.trim().split("\n");
 
-    if (lines.length <= lastRowIndex) return;
+    if (lines.length === 0) return;
 
-    // 未表示行を順に確認して最新だけ表示
-    for (let i = lastRowIndex; i < lines.length; i++) {
+    // 最新の A列を探す（空でない行）
+    for (let i = lines.length - 1; i >= 0; i--) {
       const aCol = lines[i].split(",")[0]?.trim();
       if (aCol) {
-        showText(aCol, REMOTE_SEC);
-        lastRowIndex = i + 1; // 表示済みとして更新
-        break; // 最新1行だけ表示
+        if (aCol !== lastText) {
+          lastText = aCol;
+          showText(aCol, REMOTE_SEC);
+        }
+        break;
       }
     }
-  } catch(e) {
+  } catch (e) {
     console.log("sheet error", e);
   }
 }
 setInterval(checkMessage, 5000);
 
 // ================================
-// タブレット → PC：B列送信
+// タブレット → PC：音声送信（B列）
+// ================================
 function sendToSheet(text) {
   fetch(POST_URL, {
     method: "POST",
@@ -207,5 +209,6 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 </script>
+
 </body>
 </html>
