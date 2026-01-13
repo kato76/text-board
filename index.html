@@ -46,34 +46,92 @@ body {
 <button id="start">画面をタップしてください</button>
 <div id="text"></div>
 
-<!-- 無音ループ（マイク保持） -->
+<!-- 無音ループ（マイク保持用） -->
 <audio id="keepalive" loop>
   <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=">
 </audio>
 
 <script>
-/* =========================
-   設定
-========================= */
-const SHEET_CSV_URL =
+// ================================
+// 設定
+// ================================
+const POST_URL =
+"<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>見守り文字ボード</title>
+
+<style>
+body {
+  margin: 0;
+  background: black;
+  color: white;
+  font-family: sans-serif;
+}
+
+#start {
+  width: 100vw;
+  height: 100vh;
+  font-size: 8vw;
+  background: black;
+  color: white;
+  border: none;
+}
+
+#text {
+  display: none;
+  width: 100vw;
+  height: 100vh;
+  font-size: 6vw;
+  text-align: center;
+  padding: 5vw;
+  box-sizing: border-box;
+  line-height: 1.2;
+  word-break: break-word;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+</style>
+</head>
+
+<body>
+
+<button id="start">画面をタップしてください</button>
+<div id="text"></div>
+
+<!-- 無音ループ（マイク保持用） -->
+<audio id="keepalive" loop>
+  <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=">
+</audio>
+
+<script>
+// ================================
+// 設定
+// ================================
+const POST_URL =
 "https://script.google.com/macros/s/AKfycbwU61Qcjx_1Ha5f5An16eP1zAaAz36skhoDgnuC6yD4Z_4Fm-fZyNhPgq-gz1ey2kbOhQ/exec";
 
 const REMOTE_SEC = 40;
 const MIC_SEC    = 30;
 
-/* =========================
-   変数
-========================= */
-let lastRowIndex = -1;
+// ================================
+// 変数
+// ================================
 let recognition = null;
-let micAlive = false;
+let micTimer = null;
 let lastMicTime = Date.now();
+let micAlive = false;
 
 const keepalive = document.getElementById("keepalive");
 
-/* =========================
-   初回タップ
-========================= */
+// ================================
+// 初回タップ
+// ================================
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
   const t = document.getElementById("text");
@@ -82,9 +140,9 @@ document.getElementById("start").onclick = () => {
   startMic();
 };
 
-/* =========================
-   表示
-========================= */
+// ================================
+// 表示処理
+// ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
   t.innerText = msg;
@@ -94,49 +152,54 @@ function showText(msg, sec) {
   else if (msg.length <=80) t.style.fontSize = "8vw";
   else                      t.style.fontSize = "6vw";
 
-  setTimeout(() => {
+  if (micTimer) clearTimeout(micTimer);
+  micTimer = setTimeout(() => {
     t.innerText = "待機中";
+    t.style.fontSize = "6vw";
   }, sec * 1000);
 }
 
-/* =========================
-   A列監視（新しい行だけ）
-========================= */
-async function checkMessage() {
-  try {
-    const res = await fetch(SHEET_CSV_URL + "?_=" + Date.now());
-    const csv = await res.text();
-    const rows = csv.trim().split("\n").map(r => r.split(","));
-
-    if (rows.length - 1 <= lastRowIndex) return;
-
-    for (let i = lastRowIndex + 1; i < rows.length; i++) {
-      const a = rows[i][0]?.replace(/"/g,"").trim();
-      if (a) showText(a, REMOTE_SEC);
-    }
-
-    lastRowIndex = rows.length - 1;
-
-  } catch(e) {
-    console.log("CSV error", e);
-  }
+// ================================
+// スプレッドシート送信
+// ================================
+function sendToSheet(text) {
+  fetch(POST_URL, {
+    method: "POST",
+    mode: "no-cors",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ text })
+  });
 }
-setInterval(checkMessage, 5000);
 
-/* =========================
-   マイク
-========================= */
+// ================================
+// マイク開始
+// ================================
 function startMic() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return;
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  recognition = new SR();
+  if (!SpeechRecognition) {
+    alert("音声認識に対応していません");
+    return;
+  }
+
+  if (recognition) {
+    try { recognition.stop(); } catch(e) {}
+  }
+
+  recognition = new SpeechRecognition();
   recognition.lang = "ja-JP";
 
-  recognition.onresult = e => {
+  recognition.onresult = (event) => {
     micAlive = true;
     lastMicTime = Date.now();
-    showText(e.results[0][0].transcript, MIC_SEC);
+
+    const text = event.results[0][0].transcript;
+
+    showText(text, MIC_SEC);
+    sendToSheet(text);   // ★ ここでスプレッドシートへ送信
   };
 
   recognition.onend = () => {
@@ -146,20 +209,129 @@ function startMic() {
 
   keepalive.volume = 0.001;
   keepalive.play().catch(()=>{});
-
   recognition.start();
-  micAlive = true;
 }
 
-/* =========================
-   マイク監視
-========================= */
+// ================================
+// マイク監視
+// ================================
 setInterval(() => {
   if (micAlive && Date.now() - lastMicTime > 60000) {
-    micAlive = false;
-    recognition.stop();
+    try { recognition.stop(); } catch(e) {}
     document.getElementById("text").innerText =
-      "何かしゃべってください。";
+      "何かしゃべってください";
+  }
+}, 5000);
+</script>
+
+</body>
+</html>
+";
+
+const REMOTE_SEC = 40;
+const MIC_SEC    = 30;
+
+// ================================
+// 変数
+// ================================
+let recognition = null;
+let micTimer = null;
+let lastMicTime = Date.now();
+let micAlive = false;
+
+const keepalive = document.getElementById("keepalive");
+
+// ================================
+// 初回タップ
+// ================================
+document.getElementById("start").onclick = () => {
+  document.getElementById("start").style.display = "none";
+  const t = document.getElementById("text");
+  t.style.display = "flex";
+  t.innerText = "待機中";
+  startMic();
+};
+
+// ================================
+// 表示処理
+// ================================
+function showText(msg, sec) {
+  const t = document.getElementById("text");
+  t.innerText = msg;
+
+  if (msg.length <= 20)      t.style.fontSize = "12vw";
+  else if (msg.length <=40) t.style.fontSize = "10vw";
+  else if (msg.length <=80) t.style.fontSize = "8vw";
+  else                      t.style.fontSize = "6vw";
+
+  if (micTimer) clearTimeout(micTimer);
+  micTimer = setTimeout(() => {
+    t.innerText = "待機中";
+    t.style.fontSize = "6vw";
+  }, sec * 1000);
+}
+
+// ================================
+// スプレッドシート送信
+// ================================
+function sendToSheet(text) {
+  fetch(POST_URL, {
+    method: "POST",
+    mode: "no-cors",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ text })
+  });
+}
+
+// ================================
+// マイク開始
+// ================================
+function startMic() {
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    alert("音声認識に対応していません");
+    return;
+  }
+
+  if (recognition) {
+    try { recognition.stop(); } catch(e) {}
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.lang = "ja-JP";
+
+  recognition.onresult = (event) => {
+    micAlive = true;
+    lastMicTime = Date.now();
+
+    const text = event.results[0][0].transcript;
+
+    showText(text, MIC_SEC);
+    sendToSheet(text);   // ★ ここでスプレッドシートへ送信
+  };
+
+  recognition.onend = () => {
+    micAlive = false;
+    setTimeout(startMic, 1000);
+  };
+
+  keepalive.volume = 0.001;
+  keepalive.play().catch(()=>{});
+  recognition.start();
+}
+
+// ================================
+// マイク監視
+// ================================
+setInterval(() => {
+  if (micAlive && Date.now() - lastMicTime > 60000) {
+    try { recognition.stop(); } catch(e) {}
+    document.getElementById("text").innerText =
+      "何かしゃべってください";
   }
 }, 5000);
 </script>
