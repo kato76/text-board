@@ -49,6 +49,9 @@ body {
 </audio>
 
 <script>
+// ================================
+// 設定
+// ================================
 const SHEET_URL =
 "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
@@ -58,11 +61,14 @@ const POST_URL =
 const REMOTE_SEC = 40;
 const MIC_SEC = 30;
 
-let lastC1 = "";          // ★ 表示済みID
+// ================================
+// 状態管理
+// ================================
+let lastMyRow = 0;      // ★ お母さま（B列）が最後に書いた行
 let recognition = null;
 let micTimer = null;
-let lastMicTime = Date.now();
 let micAlive = false;
+let lastMicTime = Date.now();
 
 const keepalive = document.getElementById("keepalive");
 
@@ -78,7 +84,7 @@ document.getElementById("start").onclick = () => {
 };
 
 // ================================
-// 表示
+// 表示処理
 // ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
@@ -98,31 +104,32 @@ function showText(msg, sec) {
 
 // ================================
 // PC → タブレット
-// A1: 本文
-// C1: 更新ID
+// 「次のA行」だけを見る
 // ================================
 async function checkMessage() {
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
-    const text = await res.text();
+    const csv = await res.text();
+    const rows = csv.trim().split(/\r?\n/);
 
-    const rows = text.split(/\r?\n/);
-    if (!rows[0]) return;
+    for (let i = lastMyRow; i < rows.length; i++) {
+      const cols = rows[i].match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)
+        ?.map(v => v.replace(/^"|"$/g, ""));
 
-    // CSV安全処理（ダブルクォート除去）
-    const cols = rows[0]
-      .match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)
-      ?.map(v => v.replace(/^"|"$/g, ""));
+      if (!cols) continue;
 
-    if (!cols || cols.length < 3) return;
+      const a = cols[0]?.trim();
+      const b = cols[1]?.trim();
 
-    const a1 = cols[0].trim();
-    const c1 = cols[2].trim();
+      // ★ Aがあり、Bが空 → 相手の発話
+      if (a && !b && i + 1 > lastMyRow) {
+        showText(a, REMOTE_SEC);
+        lastMyRow = i + 1;
+        return;
+      }
 
-    // ★ C1が変わった時だけ
-    if (a1 && c1 && c1 !== lastC1) {
-      lastC1 = c1;
-      showText(a1, REMOTE_SEC);
+      // ★ Bが埋まっている行を記録
+      if (b) lastMyRow = i + 1;
     }
   } catch (e) {
     console.log("sheet error", e);
@@ -131,7 +138,7 @@ async function checkMessage() {
 setInterval(checkMessage, 5000);
 
 // ================================
-// タブレット → PC（B列）
+// タブレット → PC（B列に追記）
 // ================================
 function sendToSheet(text) {
   fetch(POST_URL, {
@@ -179,7 +186,7 @@ setInterval(() => {
     micAlive = false;
     recognition.stop();
     document.getElementById("text").innerText =
-      "何かしゃべってください";
+      "何かしゃべってください　　2回ほど。";
   }
 }, 5000);
 
