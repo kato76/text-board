@@ -53,7 +53,8 @@ const POST_URL  = "https://script.google.com/macros/s/AKfycbwU61Qcjx_1Ha5f5An16e
 const REMOTE_SEC = 40;
 const MIC_SEC    = 30;
 
-let lastShownText = ""; // すでに表示したA列文字
+let lastText = "";      // 最後に表示したA列文字
+let lastShownRow = -1;  // 最後に表示した行番号
 let recognition = null;
 let micTimer = null;
 let lastMicTime = Date.now();
@@ -61,26 +62,29 @@ let micAlive = false;
 
 const keepalive = document.getElementById("keepalive");
 
+// ================================
+// 初回タップ
+// ================================
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
   const t = document.getElementById("text");
   t.style.display = "flex";
   t.innerText = "待機中";
   startMic();
-  checkMessage(); // タップ後すぐ最新A列を確認
+  checkMessage(); // タップ直後に最新A列を確認
 };
 
-// -----------------
+// ================================
 // 表示処理
-// -----------------
+// ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
   t.innerText = msg;
 
   if (msg.length <= 20)      t.style.fontSize = "12vw";
-  else if (msg.length <=40) t.style.fontSize = "10vw";
-  else if (msg.length <=80) t.style.fontSize = "8vw";
-  else                      t.style.fontSize = "6vw";
+  else if (msg.length <= 40) t.style.fontSize = "10vw";
+  else if (msg.length <= 80) t.style.fontSize = "8vw";
+  else                        t.style.fontSize = "6vw";
 
   if (micTimer) clearTimeout(micTimer);
   micTimer = setTimeout(() => {
@@ -89,9 +93,9 @@ function showText(msg, sec) {
   }, sec * 1000);
 }
 
-// -----------------
-// A列最新チェック
-// -----------------
+// ================================
+// A列の最下行を確認
+// ================================
 async function checkMessage() {
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
@@ -99,39 +103,38 @@ async function checkMessage() {
     const lines = csv.trim().split("\n");
     if (lines.length === 0) return;
 
-    // 下から順に探す
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const cols = lines[i].split(",");
-      const aCol = cols[0]?.trim();
-      const bCol = cols[1]?.trim();
+    const lastIndex = lines.length - 1;
+    const lastCols = lines[lastIndex].split(",");
+    const aCol = lastCols[0]?.trim() || "";
+    const bCol = lastCols[1]?.trim() || "";
 
-      // A列が空でない AND B列が空 AND 以降のB列も空
-      if (!aCol) continue;
-      if (bCol) continue;
+    // 下にB列が存在するか確認（最下行なので通常なし）
+    let bBelowExists = false;
+    for (let i = lastIndex + 1; i < lines.length; i++) {
+      const bBelow = lines[i].split(",")[1]?.trim();
+      if (bBelow) { bBelowExists = true; break; }
+    }
 
-      let bEmptyBelow = true;
-      for (let j = i + 1; j < lines.length; j++) {
-        const bBelow = lines[j].split(",")[1]?.trim();
-        if (bBelow) { bEmptyBelow = false; break; }
-      }
-
-      // 条件クリア & まだ表示していない
-      if (bEmptyBelow && aCol !== lastShownText) {
-        lastShownText = aCol;
-        showText(aCol, REMOTE_SEC);
-        break;
-      }
+    // 条件: A列に値あり、同行B列空、下B列も空、まだ表示していない行
+    if (aCol && !bCol && !bBelowExists && lastIndex > lastShownRow) {
+      lastShownRow = lastIndex;
+      lastText = aCol;
+      showText(aCol, REMOTE_SEC);
     }
 
   } catch(e) {
     console.log("sheet error", e);
   }
 }
-setInterval(checkMessage, 1000); // 1秒ごとに確認
 
-// -----------------
-// タブレット → PC
-// -----------------
+// ================================
+// 1秒ごとの定期チェック
+// ================================
+setInterval(checkMessage, 1000);
+
+// ================================
+// タブレット → PC：音声送信（B列）
+// ================================
 function sendToSheet(text) {
   fetch(POST_URL, {
     method: "POST",
@@ -141,9 +144,9 @@ function sendToSheet(text) {
   });
 }
 
-// -----------------
+// ================================
 // マイク開始
-// -----------------
+// ================================
 function startMic() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) { alert("この端末は音声認識非対応"); return; }
@@ -164,14 +167,14 @@ function startMic() {
   };
 
   recognition.onerror = () => { micAlive = false; try { recognition.stop(); } catch(e){} };
-  recognition.onend = () => { micAlive = false; setTimeout(() => startMic(), 500); };
+  recognition.onend = () => { micAlive = false; setTimeout(() => startMic(), 1000); };
 
   try { keepalive.volume = 0.001; keepalive.play().catch(()=>{}); recognition.start(); micAlive = true; } catch(e){}
 }
 
-// -----------------
+// ================================
 // マイク黙死監視
-// -----------------
+// ================================
 setInterval(() => {
   const now = Date.now();
   if (micAlive && now - lastMicTime > 60000) {
@@ -182,9 +185,9 @@ setInterval(() => {
   }
 }, 5000);
 
-// -----------------
-// 画面復帰
-// -----------------
+// ================================
+// 画面復帰時にマイク再開
+// ================================
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !micAlive) startMic();
 });
