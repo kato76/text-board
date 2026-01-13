@@ -50,16 +50,16 @@ body {
 // ================================
 // 設定
 // ================================
-const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
-const POST_URL  = "https://script.google.com/macros/s/AKfycbwU61Qcjx_1Ha5f5An16eP1zAaAz36skhoDgnuC6yD4Z_4Fm-fZyNhPgq-gz1ey2kbOhQ/exec";
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv"; // CSV公開URL
+const POST_URL = "https://script.google.com/macros/s/AKfycbwU61Qcjx_1Ha5f5An16eP1zAaAz36skhoDgnuC6yD4Z_4Fm-fZyNhPgq-gz1ey2kbOhQ/exec"; // doPost URL
 
-const REMOTE_SEC = 40; // PC文章表示時間
-const MIC_SEC    = 30; // マイク文章表示時間
+const REMOTE_SEC = 40;
+const MIC_SEC    = 30;
 
 // ================================
 // 変数
 // ================================
-let lastTimestamp = ""; // 最後に表示した行の日時
+let lastText = ""; // 最後に表示したPC文章
 let recognition = null;
 let micTimer = null;
 let lastMicTime = Date.now();
@@ -74,9 +74,8 @@ document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
   const t = document.getElementById("text");
   t.style.display = "flex";
-  t.innerText = "待機中";
-  
-  // タップした瞬間に最新A列を確認
+
+  // タップした瞬間に最新A列をチェックして表示
   checkMessage();
 
   startMic();
@@ -102,7 +101,7 @@ function showText(msg, sec) {
 }
 
 // ================================
-// PC → タブレット：最新A列監視
+// PC → タブレット：A列監視（最新行だけ）
 // ================================
 async function checkMessage() {
   try {
@@ -111,27 +110,20 @@ async function checkMessage() {
     const lines = csv.trim().split("\n");
     if (lines.length === 0) return;
 
-    // 下から最新行を確認
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const cols = lines[i].split(",");
-      const aCol = cols[0]?.trim();
-      const cCol = cols[2]?.trim(); // 日時
+    const lastRow = lines[lines.length - 1];
+    const cols = lastRow.split(",");
+    const aCol = cols[0]?.trim(); // 最新A列
 
-      if (aCol && cCol) {
-        if (cCol !== lastTimestamp) {
-          lastTimestamp = cCol;
-          showText(aCol, REMOTE_SEC);
-        }
-        break; // 最新行だけ確認
-      }
+    if (aCol && aCol !== lastText) { // 前回表示済みでなければ
+      lastText = aCol;
+      showText(aCol, REMOTE_SEC);
     }
+
   } catch (e) {
     console.log("sheet error", e);
   }
 }
-
-// 定期チェック（5秒ごと）
-setInterval(checkMessage, 5000);
+setInterval(checkMessage, 5000); // 5秒ごとに最新A列をチェック
 
 // ================================
 // タブレット → PC：音声送信（B列）
@@ -155,10 +147,7 @@ function startMic() {
     return;
   }
 
-  if (recognition) {
-    try { recognition.stop(); } catch(e){}
-    recognition = null;
-  }
+  if (recognition) { try { recognition.stop(); } catch(e){} recognition = null; }
 
   recognition = new SpeechRecognition();
   recognition.lang = "ja-JP";
