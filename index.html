@@ -49,9 +49,6 @@ body {
 </audio>
 
 <script>
-// ================================
-// 設定
-// ================================
 const SHEET_URL =
 "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
@@ -59,12 +56,9 @@ const POST_URL =
 "https://script.google.com/macros/s/AKfycbyb1tpRs6JPlIual_ALqvSvNRIaSH_K9TYtRrzg8XhjA8STiZ-iR8a3X3APcDxVApFchg/exec";
 
 const REMOTE_SEC = 40;
-const MIC_SEC    = 30;
+const MIC_SEC = 30;
 
-// ================================
-// 変数
-// ================================
-let lastC1 = "";        // ★ C1で管理
+let lastC1 = "";          // ★ 表示済みID
 let recognition = null;
 let micTimer = null;
 let lastMicTime = Date.now();
@@ -84,7 +78,7 @@ document.getElementById("start").onclick = () => {
 };
 
 // ================================
-// 表示処理
+// 表示
 // ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
@@ -95,7 +89,7 @@ function showText(msg, sec) {
   else if (msg.length <=80) t.style.fontSize = "8vw";
   else                      t.style.fontSize = "6vw";
 
-  if (micTimer) clearTimeout(micTimer);
+  clearTimeout(micTimer);
   micTimer = setTimeout(() => {
     t.innerText = "待機中";
     t.style.fontSize = "6vw";
@@ -104,19 +98,31 @@ function showText(msg, sec) {
 
 // ================================
 // PC → タブレット
-// A1 = 本文
-// C1 = 更新ID（自動）
+// A1: 本文
+// C1: 更新ID
 // ================================
 async function checkMessage() {
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
-    const csv = await res.text();
-    const [a1,b1,c1] = csv.split("\n")[0].split(",");
+    const text = await res.text();
 
-    // ★ C1が変わった時だけ表示
-    if (c1 && c1 !== lastC1) {
+    const rows = text.split(/\r?\n/);
+    if (!rows[0]) return;
+
+    // CSV安全処理（ダブルクォート除去）
+    const cols = rows[0]
+      .match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)
+      ?.map(v => v.replace(/^"|"$/g, ""));
+
+    if (!cols || cols.length < 3) return;
+
+    const a1 = cols[0].trim();
+    const c1 = cols[2].trim();
+
+    // ★ C1が変わった時だけ
+    if (a1 && c1 && c1 !== lastC1) {
       lastC1 = c1;
-      if (a1) showText(a1.trim(), REMOTE_SEC);
+      showText(a1, REMOTE_SEC);
     }
   } catch (e) {
     console.log("sheet error", e);
@@ -132,10 +138,7 @@ function sendToSheet(text) {
     method: "POST",
     mode: "no-cors",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text: text,
-      role: "mother"   // ★ B列用
-    })
+    body: JSON.stringify({ text })
   });
 }
 
@@ -146,10 +149,7 @@ function startMic() {
   const SpeechRecognition =
     window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  if (!SpeechRecognition) {
-    alert("音声認識非対応");
-    return;
-  }
+  if (!SpeechRecognition) return;
 
   if (recognition) recognition.stop();
 
@@ -176,6 +176,7 @@ function startMic() {
 // ================================
 setInterval(() => {
   if (micAlive && Date.now() - lastMicTime > 60000) {
+    micAlive = false;
     recognition.stop();
     document.getElementById("text").innerText =
       "何かしゃべってください";
