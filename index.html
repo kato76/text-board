@@ -11,7 +11,6 @@ body { margin:0; background:black; color:white; font-family:sans-serif; }
 #text { display:none; width:100vw; height:100vh; font-size:6vw; text-align:center; padding:5vw; box-sizing:border-box; line-height:1.2; white-space:pre-wrap; display:flex; align-items:center; justify-content:center; }
 </style>
 </head>
-
 <body>
 
 <button id="start">画面をタップしてください</button>
@@ -22,46 +21,58 @@ body { margin:0; background:black; color:white; font-family:sans-serif; }
 </audio>
 
 <script>
+// ================================
+// 設定（ここは固定でOK）
+// ================================
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 const POST_URL  = "https://script.google.com/macros/s/AKfycbwU61Qcjx_1Ha5f5An16eP1zAaAz36skhoDgnuC6yD4Z_4Fm-fZyNhPgq-gz1ey2kbOhQ/exec";
-
 const REMOTE_SEC = 40;
 const MIC_SEC    = 30;
 
-let lastText = "";
-let lastRowShown = 0; 
+// ================================
+// 変数
+// ================================
+let lastShownRow = 0; // 表示済み行番号
 let recognition = null;
 let micTimer = null;
 let lastMicTime = Date.now();
 let micAlive = false;
 
 const keepalive = document.getElementById("keepalive");
+const textDiv = document.getElementById("text");
+const startBtn = document.getElementById("start");
 
-document.getElementById("start").onclick = () => {
-  document.getElementById("start").style.display = "none";
-  const t = document.getElementById("text");
-  t.style.display = "flex";
-  t.innerText = "待機中";
-
-  checkMessage();           
-  setInterval(checkMessage, 1000); 
+// ================================
+// 初回タップ
+// ================================
+startBtn.onclick = () => {
+  startBtn.style.display = "none";
+  textDiv.style.display = "flex";
+  textDiv.innerText = "待機中";
   startMic();
+  checkMessage(); // タップ時に即座にチェック
 };
 
+// ================================
+// 表示処理
+// ================================
 function showText(msg, sec) {
-  const t = document.getElementById("text");
-  t.innerText = msg;
-  if(msg.length<=20) t.style.fontSize="12vw";
-  else if(msg.length<=40) t.style.fontSize="10vw";
-  else if(msg.length<=80) t.style.fontSize="8vw";
-  else t.style.fontSize="6vw";
+  textDiv.innerText = msg;
 
-  if(micTimer) clearTimeout(micTimer);
-  micTimer = setTimeout(()=>{ t.style.fontSize="6vw"; t.innerText="待機中"; }, sec*1000);
+  if (msg.length <= 20) textDiv.style.fontSize = "12vw";
+  else if (msg.length <=40) textDiv.style.fontSize = "10vw";
+  else if (msg.length <=80) textDiv.style.fontSize = "8vw";
+  else textDiv.style.fontSize = "6vw";
+
+  if (micTimer) clearTimeout(micTimer);
+  micTimer = setTimeout(() => {
+    textDiv.style.fontSize = "6vw";
+    textDiv.innerText = "待機中";
+  }, sec*1000);
 }
 
 // ================================
-// 最新A列だけ表示（B列の最後まで入力されている行を確認）
+// PC → タブレット：A列監視
 // ================================
 async function checkMessage() {
   try {
@@ -69,96 +80,93 @@ async function checkMessage() {
     const csv = await res.text();
     const lines = csv.trim().split("\n");
 
-    if(lines.length === 0) return;
-
-    // B列が入力済みの最後の行を探す
-    let lastBRow = -1;
-    for(let i=0; i<lines.length; i++){
+    // B列まで入力されている最後の行を探す
+    let targetRow = lastShownRow; // 初期値は前回表示済み行
+    for(let i=lastShownRow; i<lines.length; i++) {
       const cols = lines[i].split(",");
-      const b = (cols[1] || "").trim();
-      if(b) lastBRow = i;
+      const a = cols[0]?.trim();
+      const b = cols[1]?.trim();
+      // B列が空でなくても空でもOK、次に表示する行はB列の最後までの次
+      targetRow = i;
     }
 
-    const nextARow = lastBRow + 1; // 次に表示すべきA列の行
-    if(nextARow >= lines.length) return; // まだA列書かれてない
-
-    if(nextARow > lastRowShown){
-      const aCol = (lines[nextARow].split(",")[0] || "").trim();
-      if(aCol){
-        lastText = aCol;
-        showText(aCol, REMOTE_SEC);
-        lastRowShown = nextARow;
+    // 次に表示する行
+    const nextRow = targetRow + 1;
+    if(nextRow < lines.length) {
+      const nextCols = lines[nextRow].split(",");
+      const aText = nextCols[0]?.trim();
+      if(aText) {
+        lastShownRow = nextRow; // 更新
+        showText(aText, REMOTE_SEC);
       }
     }
 
-  } catch(e){
+  } catch(e) {
     console.log("sheet error", e);
   }
 }
+setInterval(checkMessage, 5000);
 
 // ================================
-// B列送信
-// ================================
-function sendToSheet(text){
-  fetch(POST_URL,{
-    method:"POST",
-    mode:"no-cors",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({text})
+// タブレット → PC：音声送信（B列）
+function sendToSheet(text) {
+  fetch(POST_URL, {
+    method: "POST",
+    mode: "no-cors",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
   });
 }
 
 // ================================
 // マイク開始
 // ================================
-function startMic(){
+function startMic() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!SpeechRecognition){ alert("音声認識非対応"); return; }
 
-  if(recognition){ try{recognition.stop();}catch(e){} recognition=null; }
+  if(recognition){ try{ recognition.stop(); }catch(e){} recognition=null; }
 
   recognition = new SpeechRecognition();
-  recognition.lang="ja-JP";
-  recognition.continuous=false;
-  recognition.interimResults=false;
+  recognition.lang = "ja-JP";
+  recognition.continuous = false;
+  recognition.interimResults = false;
 
-  recognition.onresult=(event)=>{
-    micAlive=true;
-    lastMicTime=Date.now();
-    const text=event.results[0][0].transcript;
+  recognition.onresult = (event)=>{
+    micAlive = true;
+    lastMicTime = Date.now();
+    const text = event.results[0][0].transcript;
     showText(text, MIC_SEC);
     sendToSheet(text);
   };
+  recognition.onerror = ()=>{ micAlive=false; try{recognition.stop();}catch(e){} };
+  recognition.onend = ()=>{ micAlive=false; setTimeout(()=>startMic(),1000); };
 
-  recognition.onerror=()=>{ micAlive=false; try{recognition.stop();}catch(e){} };
-  recognition.onend=()=>{ micAlive=false; setTimeout(()=>startMic(),1000); };
-
-  try{
-    keepalive.volume=0.001;
+  try {
+    keepalive.volume = 0.001;
     keepalive.play().catch(()=>{});
     recognition.start();
-    micAlive=true;
+    micAlive = true;
   } catch(e){}
 }
 
 // ================================
 // マイク黙死監視
-// ================================
 setInterval(()=>{
-  const now=Date.now();
+  const now = Date.now();
   if(micAlive && now-lastMicTime>60000){
     micAlive=false;
     try{recognition.stop();}catch(e){}
-    const t=document.getElementById("text");
-    t.innerText="何かしゃべってください。";
+    textDiv.innerText="何かしゃべってください。";
   }
 },5000);
 
 // ================================
 // 画面復帰
-// ================================
 document.addEventListener("visibilitychange", ()=>{
-  if(document.visibilityState==="visible" && !micAlive) startMic();
+  if(document.visibilityState==="visible" && !micAlive){
+    startMic();
+  }
 });
 </script>
 
