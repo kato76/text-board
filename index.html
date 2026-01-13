@@ -29,7 +29,7 @@ const REMOTE_SEC = 40;
 const MIC_SEC    = 30;
 
 let lastText = "";
-let lastRowShown = 0; // ← 新しく追加
+let lastRowShown = 0; 
 let recognition = null;
 let micTimer = null;
 let lastMicTime = Date.now();
@@ -43,8 +43,8 @@ document.getElementById("start").onclick = () => {
   t.style.display = "flex";
   t.innerText = "待機中";
 
-  checkMessage();           // タップ直後にチェック
-  setInterval(checkMessage, 1000); // 1秒ごとに最新チェック
+  checkMessage();           
+  setInterval(checkMessage, 1000); 
   startMic();
 };
 
@@ -61,7 +61,7 @@ function showText(msg, sec) {
 }
 
 // ================================
-// 最新A列のみ表示する
+// 最新A列だけ表示（B列の最後まで入力されている行を確認）
 // ================================
 async function checkMessage() {
   try {
@@ -69,18 +69,29 @@ async function checkMessage() {
     const csv = await res.text();
     const lines = csv.trim().split("\n");
 
-    if(lines.length <= lastRowShown) return; // 新しい行なし
+    if(lines.length === 0) return;
 
-    for(let i = lastRowShown; i < lines.length; i++) {
-      const aCol = lines[i].split(",")[0]?.trim();
-      if(aCol) {
+    // B列が入力済みの最後の行を探す
+    let lastBRow = -1;
+    for(let i=0; i<lines.length; i++){
+      const cols = lines[i].split(",");
+      const b = (cols[1] || "").trim();
+      if(b) lastBRow = i;
+    }
+
+    const nextARow = lastBRow + 1; // 次に表示すべきA列の行
+    if(nextARow >= lines.length) return; // まだA列書かれてない
+
+    if(nextARow > lastRowShown){
+      const aCol = (lines[nextARow].split(",")[0] || "").trim();
+      if(aCol){
         lastText = aCol;
         showText(aCol, REMOTE_SEC);
+        lastRowShown = nextARow;
       }
     }
 
-    lastRowShown = lines.length; // 最新行まで表示済みに更新
-  } catch(e) {
+  } catch(e){
     console.log("sheet error", e);
   }
 }
@@ -88,8 +99,8 @@ async function checkMessage() {
 // ================================
 // B列送信
 // ================================
-function sendToSheet(text) {
-  fetch(POST_URL, {
+function sendToSheet(text){
+  fetch(POST_URL,{
     method:"POST",
     mode:"no-cors",
     headers:{"Content-Type":"application/json"},
@@ -100,7 +111,7 @@ function sendToSheet(text) {
 // ================================
 // マイク開始
 // ================================
-function startMic() {
+function startMic(){
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!SpeechRecognition){ alert("音声認識非対応"); return; }
 
@@ -111,7 +122,7 @@ function startMic() {
   recognition.continuous=false;
   recognition.interimResults=false;
 
-  recognition.onresult = (event)=>{
+  recognition.onresult=(event)=>{
     micAlive=true;
     lastMicTime=Date.now();
     const text=event.results[0][0].transcript;
@@ -119,8 +130,8 @@ function startMic() {
     sendToSheet(text);
   };
 
-  recognition.onerror = ()=>{ micAlive=false; try{recognition.stop();}catch(e){} };
-  recognition.onend = ()=>{ micAlive=false; setTimeout(()=>startMic(),1000); };
+  recognition.onerror=()=>{ micAlive=false; try{recognition.stop();}catch(e){} };
+  recognition.onend=()=>{ micAlive=false; setTimeout(()=>startMic(),1000); };
 
   try{
     keepalive.volume=0.001;
