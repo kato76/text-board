@@ -51,15 +51,15 @@ body {
 // 設定
 // ================================
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
-const POST_URL = "https://script.google.com/macros/s/AKfycbwU61Qcjx_1Ha5f5An16eP1zAaAz36skhoDgnuC6yD4Z_4Fm-fZyNhPgq-gz1ey2kbOhQ/exec";
+const POST_URL  = "https://script.google.com/macros/s/AKfycbwU61Qcjx_1Ha5f5An16eP1zAaAz36skhoDgnuC6yD4Z_4Fm-fZyNhPgq-gz1ey2kbOhQ/exec";
 
-const REMOTE_SEC = 40;
-const MIC_SEC    = 30;
+const REMOTE_SEC = 40; // PC文章表示時間
+const MIC_SEC    = 30; // マイク文章表示時間
 
 // ================================
 // 変数
 // ================================
-let lastText = ""; // 最後に表示したPC文章
+let lastTimestamp = ""; // 最後に表示した行の日時
 let recognition = null;
 let micTimer = null;
 let lastMicTime = Date.now();
@@ -74,8 +74,9 @@ document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
   const t = document.getElementById("text");
   t.style.display = "flex";
-
-  // タップした瞬間に A列最新を確認
+  t.innerText = "待機中";
+  
+  // タップした瞬間に最新A列を確認
   checkMessage();
 
   startMic();
@@ -89,9 +90,9 @@ function showText(msg, sec) {
   t.innerText = msg;
 
   if (msg.length <= 20)      t.style.fontSize = "12vw";
-  else if (msg.length <= 40)  t.style.fontSize = "10vw";
-  else if (msg.length <= 80)  t.style.fontSize = "8vw";
-  else                        t.style.fontSize = "6vw";
+  else if (msg.length <= 40) t.style.fontSize = "10vw";
+  else if (msg.length <= 80) t.style.fontSize = "8vw";
+  else                      t.style.fontSize = "6vw";
 
   if (micTimer) clearTimeout(micTimer);
   micTimer = setTimeout(() => {
@@ -101,31 +102,35 @@ function showText(msg, sec) {
 }
 
 // ================================
-// PC → タブレット：A列監視
+// PC → タブレット：最新A列監視
 // ================================
 async function checkMessage() {
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
     const csv = await res.text();
     const lines = csv.trim().split("\n");
-
     if (lines.length === 0) return;
 
-    // 最新の A列を探す（空でない行）
+    // 下から最新行を確認
     for (let i = lines.length - 1; i >= 0; i--) {
-      const aCol = lines[i].split(",")[0]?.trim();
-      if (aCol) {
-        if (aCol !== lastText) {
-          lastText = aCol;
+      const cols = lines[i].split(",");
+      const aCol = cols[0]?.trim();
+      const cCol = cols[2]?.trim(); // 日時
+
+      if (aCol && cCol) {
+        if (cCol !== lastTimestamp) {
+          lastTimestamp = cCol;
           showText(aCol, REMOTE_SEC);
         }
-        break;
+        break; // 最新行だけ確認
       }
     }
   } catch (e) {
     console.log("sheet error", e);
   }
 }
+
+// 定期チェック（5秒ごと）
 setInterval(checkMessage, 5000);
 
 // ================================
@@ -145,9 +150,8 @@ function sendToSheet(text) {
 // ================================
 function startMic() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
   if (!SpeechRecognition) {
-    alert("音声認識非対応");
+    alert("この端末は音声認識非対応");
     return;
   }
 
