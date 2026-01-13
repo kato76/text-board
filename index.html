@@ -29,7 +29,9 @@ body {
   padding: 5vw;
   box-sizing: border-box;
   line-height: 1.2;
+  word-break: break-word;
   white-space: pre-wrap;
+  overflow-wrap: break-word;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -42,19 +44,20 @@ body {
 <button id="start">画面をタップしてください</button>
 <div id="text"></div>
 
+<!-- 無音ループ（マイク保持用） -->
 <audio id="keepalive" loop>
   <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=">
 </audio>
 
 <script>
 // ================================
-// 設定
+// 設定（ここは変更不要）
 // ================================
-const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv"; // ← ここにCSV公開URL
-const POST_URL = "https://script.google.com/macros/s/AKfycbwU61Qcjx_1Ha5f5An16eP1zAaAz36skhoDgnuC6yD4Z_4Fm-fZyNhPgq-gz1ey2kbOhQ/exec"; // doPost URL
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv"; // CSV公開URL
+const POST_URL  = "https://script.google.com/macros/s/AKfycbwU61Qcjx_1Ha5f5An16eP1zAaAz36skhoDgnuC6yD4Z_4Fm-fZyNhPgq-gz1ey2kbOhQ/exec"; // doPost URL
 
-const REMOTE_SEC = 40;
-const MIC_SEC    = 30;
+const REMOTE_SEC = 40; // PCからのメッセージ表示時間
+const MIC_SEC    = 30; // マイク音声表示時間
 
 // ================================
 // 変数
@@ -108,13 +111,15 @@ async function checkMessage() {
 
     if (lines.length === 0) return;
 
-    // 最後の行のA列
-    let lastRow = lines[lines.length - 1];
-    let aCol = lastRow.split(",")[0]?.trim();
-
-    if (aCol && aCol !== lastText) {
-      lastText = aCol;
-      showText(aCol, REMOTE_SEC);
+    // B列まで書き込み済みなら次のA列を探す
+    for (let i = 0; i < lines.length; i++) {
+      const cols = lines[i].split(",");
+      const aCol = cols[0]?.trim(); // A列
+      if (aCol && aCol !== lastText) {
+        lastText = aCol;
+        showText(aCol, REMOTE_SEC);
+        break;
+      }
     }
   } catch(e) {
     console.log("sheet error", e);
@@ -124,6 +129,7 @@ setInterval(checkMessage, 5000);
 
 // ================================
 // タブレット → PC：音声送信（B列）
+// ================================
 function sendToSheet(text) {
   fetch(POST_URL, {
     method: "POST",
@@ -202,5 +208,6 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 </script>
+
 </body>
 </html>
