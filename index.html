@@ -53,8 +53,7 @@ const POST_URL  = "https://script.google.com/macros/s/AKfycbwU61Qcjx_1Ha5f5An16e
 const REMOTE_SEC = 40;
 const MIC_SEC    = 30;
 
-let lastText = ""; // 最後に表示した文字
-let shownTexts = new Set(); // すでに表示した文字を記録
+let lastShownText = ""; // すでに表示したA列文字
 let recognition = null;
 let micTimer = null;
 let lastMicTime = Date.now();
@@ -71,25 +70,28 @@ document.getElementById("start").onclick = () => {
   checkMessage(); // タップ後すぐ最新A列を確認
 };
 
+// -----------------
+// 表示処理
+// -----------------
 function showText(msg, sec) {
-  if (shownTexts.has(msg)) return; // すでに表示済みならスキップ
-  shownTexts.add(msg);
-
   const t = document.getElementById("text");
-  if (micTimer) clearTimeout(micTimer);
-
   t.innerText = msg;
-  if (msg.length <= 20)      t.style.fontSize = "12vw";
-  else if (msg.length <=40)  t.style.fontSize = "10vw";
-  else if (msg.length <=80)  t.style.fontSize = "8vw";
-  else                       t.style.fontSize = "6vw";
 
+  if (msg.length <= 20)      t.style.fontSize = "12vw";
+  else if (msg.length <=40) t.style.fontSize = "10vw";
+  else if (msg.length <=80) t.style.fontSize = "8vw";
+  else                      t.style.fontSize = "6vw";
+
+  if (micTimer) clearTimeout(micTimer);
   micTimer = setTimeout(() => {
     t.style.fontSize = "6vw";
     t.innerText = "待機中";
   }, sec * 1000);
 }
 
+// -----------------
+// A列最新チェック
+// -----------------
 async function checkMessage() {
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
@@ -97,31 +99,39 @@ async function checkMessage() {
     const lines = csv.trim().split("\n");
     if (lines.length === 0) return;
 
-    // 最新行から下にB列が空のものを探す
+    // 下から順に探す
     for (let i = lines.length - 1; i >= 0; i--) {
       const cols = lines[i].split(",");
       const aCol = cols[0]?.trim();
       const bCol = cols[1]?.trim();
 
-      // 下のB列を確認
-      let hasBBelow = false;
+      // A列が空でない AND B列が空 AND 以降のB列も空
+      if (!aCol) continue;
+      if (bCol) continue;
+
+      let bEmptyBelow = true;
       for (let j = i + 1; j < lines.length; j++) {
-        const belowB = lines[j].split(",")[1]?.trim();
-        if (belowB) { hasBBelow = true; break; }
+        const bBelow = lines[j].split(",")[1]?.trim();
+        if (bBelow) { bEmptyBelow = false; break; }
       }
 
-      if (aCol && !bCol && !hasBBelow && !shownTexts.has(aCol)) {
-        lastText = aCol;
+      // 条件クリア & まだ表示していない
+      if (bEmptyBelow && aCol !== lastShownText) {
+        lastShownText = aCol;
         showText(aCol, REMOTE_SEC);
         break;
       }
     }
+
   } catch(e) {
     console.log("sheet error", e);
   }
 }
-setInterval(checkMessage, 1000);
+setInterval(checkMessage, 1000); // 1秒ごとに確認
 
+// -----------------
+// タブレット → PC
+// -----------------
 function sendToSheet(text) {
   fetch(POST_URL, {
     method: "POST",
@@ -131,6 +141,9 @@ function sendToSheet(text) {
   });
 }
 
+// -----------------
+// マイク開始
+// -----------------
 function startMic() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) { alert("この端末は音声認識非対応"); return; }
@@ -151,11 +164,14 @@ function startMic() {
   };
 
   recognition.onerror = () => { micAlive = false; try { recognition.stop(); } catch(e){} };
-  recognition.onend = () => { micAlive = false; setTimeout(() => startMic(), 1000); };
+  recognition.onend = () => { micAlive = false; setTimeout(() => startMic(), 500); };
 
   try { keepalive.volume = 0.001; keepalive.play().catch(()=>{}); recognition.start(); micAlive = true; } catch(e){}
 }
 
+// -----------------
+// マイク黙死監視
+// -----------------
 setInterval(() => {
   const now = Date.now();
   if (micAlive && now - lastMicTime > 60000) {
@@ -166,6 +182,9 @@ setInterval(() => {
   }
 }, 5000);
 
+// -----------------
+// 画面復帰
+// -----------------
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !micAlive) startMic();
 });
