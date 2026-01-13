@@ -6,11 +6,37 @@
 <title>見守り文字ボード</title>
 
 <style>
-body { margin:0; background:black; color:white; font-family:sans-serif; }
-#start { width:100vw; height:100vh; font-size:8vw; background:black; color:white; border:none; }
-#text { display:none; width:100vw; height:100vh; font-size:6vw; text-align:center; padding:5vw; box-sizing:border-box; line-height:1.2; white-space:pre-wrap; display:flex; align-items:center; justify-content:center; }
+body {
+  margin: 0;
+  background: black;
+  color: white;
+  font-family: sans-serif;
+}
+#start {
+  width: 100vw;
+  height: 100vh;
+  font-size: 8vw;
+  background: black;
+  color: white;
+  border: none;
+}
+#text {
+  display: none;
+  width: 100vw;
+  height: 100vh;
+  font-size: 6vw;
+  text-align: center;
+  padding: 5vw;
+  box-sizing: border-box;
+  line-height: 1.2;
+  white-space: pre-wrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 </style>
 </head>
+
 <body>
 
 <button id="start">画面をタップしてください</button>
@@ -22,35 +48,38 @@ body { margin:0; background:black; color:white; font-family:sans-serif; }
 
 <script>
 // ================================
-// 設定（ここは固定でOK）
+// 設定
 // ================================
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 const POST_URL  = "https://script.google.com/macros/s/AKfycbwU61Qcjx_1Ha5f5An16eP1zAaAz36skhoDgnuC6yD4Z_4Fm-fZyNhPgq-gz1ey2kbOhQ/exec";
+
 const REMOTE_SEC = 40;
 const MIC_SEC    = 30;
 
 // ================================
 // 変数
 // ================================
-let lastShownRow = 0; // 表示済み行番号
+let lastText = "";       // 最後に表示したA列
 let recognition = null;
 let micTimer = null;
 let lastMicTime = Date.now();
 let micAlive = false;
 
-const keepalive = document.getElementById("keepalive");
 const textDiv = document.getElementById("text");
-const startBtn = document.getElementById("start");
+const keepalive = document.getElementById("keepalive");
 
 // ================================
 // 初回タップ
 // ================================
-startBtn.onclick = () => {
-  startBtn.style.display = "none";
+document.getElementById("start").onclick = async () => {
+  document.getElementById("start").style.display = "none";
   textDiv.style.display = "flex";
   textDiv.innerText = "待機中";
+
+  // タップ時にA列を確認
+  await checkMessage();
+
   startMic();
-  checkMessage(); // タップ時に即座にチェック
 };
 
 // ================================
@@ -59,15 +88,15 @@ startBtn.onclick = () => {
 function showText(msg, sec) {
   textDiv.innerText = msg;
 
-  if (msg.length <= 20) textDiv.style.fontSize = "12vw";
-  else if (msg.length <=40) textDiv.style.fontSize = "10vw";
-  else if (msg.length <=80) textDiv.style.fontSize = "8vw";
+  if(msg.length <= 20) textDiv.style.fontSize = "12vw";
+  else if(msg.length <=40) textDiv.style.fontSize = "10vw";
+  else if(msg.length <=80) textDiv.style.fontSize = "8vw";
   else textDiv.style.fontSize = "6vw";
 
-  if (micTimer) clearTimeout(micTimer);
-  micTimer = setTimeout(() => {
+  if(micTimer) clearTimeout(micTimer);
+  micTimer = setTimeout(()=>{
     textDiv.style.fontSize = "6vw";
-    textDiv.innerText = "待機中";
+    textDiv.innerText="待機中";
   }, sec*1000);
 }
 
@@ -79,29 +108,26 @@ async function checkMessage() {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
     const csv = await res.text();
     const lines = csv.trim().split("\n");
+    if(lines.length === 0) return;
 
-    // B列まで入力されている最後の行を探す
-    let targetRow = lastShownRow; // 初期値は前回表示済み行
-    for(let i=lastShownRow; i<lines.length; i++) {
+    // B列まで入力された次のA列を表示
+    let nextRow = null;
+    for(let i=lines.length-1; i>=0; i--){
       const cols = lines[i].split(",");
       const a = cols[0]?.trim();
       const b = cols[1]?.trim();
-      // B列が空でなくても空でもOK、次に表示する行はB列の最後までの次
-      targetRow = i;
-    }
-
-    // 次に表示する行
-    const nextRow = targetRow + 1;
-    if(nextRow < lines.length) {
-      const nextCols = lines[nextRow].split(",");
-      const aText = nextCols[0]?.trim();
-      if(aText) {
-        lastShownRow = nextRow; // 更新
-        showText(aText, REMOTE_SEC);
+      if(a && (b !== undefined)){ // B列は空でもOK
+        nextRow = a;
+        break;
       }
     }
 
-  } catch(e) {
+    if(nextRow && nextRow !== lastText){
+      lastText = nextRow;
+      showText(nextRow, REMOTE_SEC);
+    }
+
+  } catch(e){
     console.log("sheet error", e);
   }
 }
@@ -109,23 +135,29 @@ setInterval(checkMessage, 5000);
 
 // ================================
 // タブレット → PC：音声送信（B列）
-function sendToSheet(text) {
-  fetch(POST_URL, {
-    method: "POST",
-    mode: "no-cors",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text })
+function sendToSheet(text){
+  fetch(POST_URL,{
+    method:"POST",
+    mode:"no-cors",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({text})
   });
 }
 
 // ================================
 // マイク開始
 // ================================
-function startMic() {
+function startMic(){
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SpeechRecognition){ alert("音声認識非対応"); return; }
+  if(!SpeechRecognition){
+    alert("音声認識非対応");
+    return;
+  }
 
-  if(recognition){ try{ recognition.stop(); }catch(e){} recognition=null; }
+  if(recognition){
+    try{ recognition.stop(); }catch(e){}
+    recognition = null;
+  }
 
   recognition = new SpeechRecognition();
   recognition.lang = "ja-JP";
@@ -133,42 +165,50 @@ function startMic() {
   recognition.interimResults = false;
 
   recognition.onresult = (event)=>{
-    micAlive = true;
-    lastMicTime = Date.now();
+    micAlive=true;
+    lastMicTime=Date.now();
     const text = event.results[0][0].transcript;
     showText(text, MIC_SEC);
     sendToSheet(text);
   };
-  recognition.onerror = ()=>{ micAlive=false; try{recognition.stop();}catch(e){} };
-  recognition.onend = ()=>{ micAlive=false; setTimeout(()=>startMic(),1000); };
 
-  try {
-    keepalive.volume = 0.001;
+  recognition.onerror = ()=>{
+    micAlive=false;
+    try{ recognition.stop(); }catch(e){}
+  };
+
+  recognition.onend = ()=>{
+    micAlive=false;
+    setTimeout(()=>startMic(),1000);
+  };
+
+  try{
+    keepalive.volume=0.001;
     keepalive.play().catch(()=>{});
     recognition.start();
-    micAlive = true;
-  } catch(e){}
+    micAlive=true;
+  }catch(e){}
 }
 
 // ================================
-// マイク黙死監視
+// マイク黙死監視（待機中表示と干渉しない）
 setInterval(()=>{
   const now = Date.now();
-  if(micAlive && now-lastMicTime>60000){
+  if(micAlive && now - lastMicTime > 60000){
     micAlive=false;
-    try{recognition.stop();}catch(e){}
+    try{ recognition.stop(); }catch(e){}
+    textDiv.style.fontSize = "6vw";
     textDiv.innerText="何かしゃべってください。";
   }
 },5000);
 
 // ================================
 // 画面復帰
-document.addEventListener("visibilitychange", ()=>{
+document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="visible" && !micAlive){
     startMic();
   }
 });
 </script>
-
 </body>
 </html>
