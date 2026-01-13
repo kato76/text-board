@@ -29,9 +29,7 @@ body {
   padding: 5vw;
   box-sizing: border-box;
   line-height: 1.2;
-  word-break: break-word;
   white-space: pre-wrap;
-  overflow-wrap: break-word;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -52,20 +50,37 @@ body {
 // ================================
 // 設定
 // ================================
-const SHEET_URL = "ここにCSV公開URLを入れる"; // CSV公開URL
-const POST_URL  = "ここにdoPostのURLを入れる";  // Google Apps Script doPost URL
-const REMOTE_SEC = 40;  // PC文章表示時間
-const MIC_SEC    = 30;  // タブレット発話表示時間
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/XXXXXXXXX/pub?gid=0&single=true&output=csv"; // CSV公開URL
+const POST_URL = "https://script.google.com/macros/s/XXXXXXXXX/exec"; // doPost URL
+
+const REMOTE_SEC = 40;
+const MIC_SEC    = 30;
 
 // ================================
 // 変数
 // ================================
-let lastRowIndex = 0;  // 最後に表示したA列行番号
+let lastText = ""; // ★最後に表示したA列
 let recognition = null;
 let micTimer = null;
 let lastMicTime = Date.now();
 let micAlive = false;
-let keepalive = document.getElementById("keepalive");
+
+const keepalive = document.getElementById("keepalive");
+
+// ================================
+// 初回タップ
+// ================================
+document.getElementById("start").onclick = async () => {
+  document.getElementById("start").style.display = "none";
+  const t = document.getElementById("text");
+  t.style.display = "flex";
+  t.innerText = "待機中";
+
+  // ★タップ直後に最新A列をチェックして表示
+  await checkMessage();
+
+  startMic();
+};
 
 // ================================
 // 表示処理
@@ -87,28 +102,28 @@ function showText(msg, sec) {
 }
 
 // ================================
-// PC → タブレット：A列監視
+// PC → タブレット：最新A列だけ監視
 // ================================
 async function checkMessage() {
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
     const csv = await res.text();
     const lines = csv.trim().split("\n");
+    if (lines.length === 0) return;
 
-    // lastRowIndex の次の行から順に表示
-    for (let i = lastRowIndex; i < lines.length; i++) {
-      const cols = lines[i].split(",");
-      const aCol = cols[0]?.trim();
-      if (aCol) {
-        showText(aCol, REMOTE_SEC);
-        lastRowIndex = i + 1; // 表示済みとして更新
-        break; // 1行ずつ表示
-      }
+    // 最新行のA列だけ
+    const lastRow = lines[lines.length - 1];
+    const aCol = lastRow.split(",")[0]?.trim();
+
+    if (aCol && aCol !== lastText) {
+      lastText = aCol;
+      showText(aCol, REMOTE_SEC);
     }
   } catch(e) {
     console.log("sheet error", e);
   }
 }
+setInterval(checkMessage, 5000);
 
 // ================================
 // タブレット → PC：音声送信（B列）
@@ -127,7 +142,11 @@ function sendToSheet(text) {
 // ================================
 function startMic() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) { alert("音声認識非対応"); return; }
+
+  if (!SpeechRecognition) {
+    alert("音声認識非対応");
+    return;
+  }
 
   if (recognition) {
     try { recognition.stop(); } catch(e){}
@@ -147,8 +166,15 @@ function startMic() {
     sendToSheet(text);
   };
 
-  recognition.onerror = () => { micAlive = false; try { recognition.stop(); } catch(e){} };
-  recognition.onend = () => { micAlive = false; setTimeout(() => startMic(), 1000); };
+  recognition.onerror = () => {
+    micAlive = false;
+    try { recognition.stop(); } catch(e){}
+  };
+
+  recognition.onend = () => {
+    micAlive = false;
+    setTimeout(() => startMic(), 1000);
+  };
 
   try {
     keepalive.volume = 0.001;
@@ -157,21 +183,6 @@ function startMic() {
     micAlive = true;
   } catch(e){}
 }
-
-// ================================
-// 初回タップ
-// ================================
-document.getElementById("start").onclick = async () => {
-  document.getElementById("start").style.display = "none";
-  const t = document.getElementById("text");
-  t.style.display = "flex";
-  t.innerText = "待機中";
-
-  // ★ タップ直後にA列チェック
-  await checkMessage();
-
-  startMic();
-};
 
 // ================================
 // マイク黙死監視
@@ -190,14 +201,10 @@ setInterval(() => {
 // 画面復帰
 // ================================
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !micAlive) startMic();
+  if (document.visibilityState === "visible" && !micAlive) {
+    startMic();
+  }
 });
-
-// ================================
-// 定期チェック
-// ================================
-setInterval(checkMessage, 5000);
-
 </script>
 
 </body>
