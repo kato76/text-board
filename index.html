@@ -26,7 +26,6 @@ body {
   display: none;
   width: 100vw;
   height: 100vh;
-  font-size: 6vw;
   text-align: center;
   padding: 5vw;
   box-sizing: border-box;
@@ -53,22 +52,24 @@ body {
 // 設定
 // ================================
 const SHEET_URL =
-"https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
+"https://docs.google.com/spreadsheets/d/e/2PACX-XXXXXXXXXXXXXXXXXXXX/pub?gid=0&single=true&output=csv";
 
 const POST_URL =
-"https://script.google.com/macros/s/AKfycbyb1tpRs6JPlIual_ALqvSvNRIaSH_K9TYtRrzg8XhjA8STiZ-iR8a3X3APcDxVApFchg/exec";
+"https://script.google.com/macros/s/AKfycbXXXXXXXXXXXXXXXXXXXX/exec";
 
 const REMOTE_SEC = 40;
-const MIC_SEC = 30;
+const MIC_SEC    = 30;
 
 // ================================
-// 状態管理
+// 変数
 // ================================
-let lastMyRow = 0;      // ★ お母さま（B列）が最後に書いた行
 let recognition = null;
 let micTimer = null;
-let micAlive = false;
 let lastMicTime = Date.now();
+let micAlive = false;
+
+// ★ すでに表示したAの行番号
+let lastShownRow = -1;
 
 const keepalive = document.getElementById("keepalive");
 
@@ -95,7 +96,7 @@ function showText(msg, sec) {
   else if (msg.length <=80) t.style.fontSize = "8vw";
   else                      t.style.fontSize = "6vw";
 
-  clearTimeout(micTimer);
+  if (micTimer) clearTimeout(micTimer);
   micTimer = setTimeout(() => {
     t.innerText = "待機中";
     t.style.fontSize = "6vw";
@@ -104,7 +105,7 @@ function showText(msg, sec) {
 
 // ================================
 // PC → タブレット
-// 「次のA行」だけを見る
+// Bの進行に合わせて次のAを見る
 // ================================
 async function checkMessage() {
   try {
@@ -112,25 +113,35 @@ async function checkMessage() {
     const csv = await res.text();
     const rows = csv.trim().split(/\r?\n/);
 
-    for (let i = lastMyRow; i < rows.length; i++) {
-      const cols = rows[i].match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)
+    let lastBRow = -1;
+
+    // B列が最後に入っている行を探す
+    rows.forEach((row, i) => {
+      const cols = row.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)
         ?.map(v => v.replace(/^"|"$/g, ""));
-
-      if (!cols) continue;
-
-      const a = cols[0]?.trim();
-      const b = cols[1]?.trim();
-
-      // ★ Aがあり、Bが空 → 相手の発話
-      if (a && !b && i + 1 > lastMyRow) {
-        showText(a, REMOTE_SEC);
-        lastMyRow = i + 1;
-        return;
+      if (cols && cols[1]?.trim()) {
+        lastBRow = i;
       }
+    });
 
-      // ★ Bが埋まっている行を記録
-      if (b) lastMyRow = i + 1;
-    }
+    // 次に表示すべきAの行
+    const targetRow = lastBRow + 1;
+
+    if (targetRow <= lastShownRow) return;
+    if (targetRow >= rows.length) return;
+
+    const cols = rows[targetRow]
+      .match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)
+      ?.map(v => v.replace(/^"|"$/g, ""));
+
+    if (!cols) return;
+
+    const aText = cols[0]?.trim();
+    if (!aText) return;
+
+    showText(aText, REMOTE_SEC);
+    lastShownRow = targetRow;
+
   } catch (e) {
     console.log("sheet error", e);
   }
@@ -138,7 +149,7 @@ async function checkMessage() {
 setInterval(checkMessage, 5000);
 
 // ================================
-// タブレット → PC（B列に追記）
+// タブレット → PC（B列）
 // ================================
 function sendToSheet(text) {
   fetch(POST_URL, {
@@ -156,7 +167,10 @@ function startMic() {
   const SpeechRecognition =
     window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  if (!SpeechRecognition) return;
+  if (!SpeechRecognition) {
+    alert("音声認識非対応");
+    return;
+  }
 
   if (recognition) recognition.stop();
 
@@ -183,10 +197,9 @@ function startMic() {
 // ================================
 setInterval(() => {
   if (micAlive && Date.now() - lastMicTime > 60000) {
-    micAlive = false;
     recognition.stop();
     document.getElementById("text").innerText =
-      "何かしゃべってください　　2回ほど。";
+      "何かしゃべってください";
   }
 }, 5000);
 
