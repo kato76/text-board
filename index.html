@@ -26,6 +26,7 @@ body {
   display: none;
   width: 100vw;
   height: 100vh;
+  font-size: 6vw;
   text-align: center;
   padding: 5vw;
   box-sizing: border-box;
@@ -48,28 +49,20 @@ body {
 </audio>
 
 <script>
-// ================================
-// 設定
-// ================================
 const SHEET_URL =
-"https://docs.google.com/spreadsheets/d/e/2PACX-XXXXXXXXXXXXXXXXXXXX/pub?gid=0&single=true&output=csv";
+"https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 
 const POST_URL =
-"https://script.google.com/macros/s/AKfycbXXXXXXXXXXXXXXXXXXXX/exec";
+"https://script.google.com/macros/s/AKfycbyb1tpRs6JPlIual_ALqvSvNRIaSH_K9TYtRrzg8XhjA8STiZ-iR8a3X3APcDxVApFchg/exec";
 
 const REMOTE_SEC = 40;
-const MIC_SEC    = 30;
+const MIC_SEC = 30;
 
-// ================================
-// 変数
-// ================================
+let lastC1 = "";          // ★ 表示済みID
 let recognition = null;
 let micTimer = null;
 let lastMicTime = Date.now();
 let micAlive = false;
-
-// ★ すでに表示したAの行番号
-let lastShownRow = -1;
 
 const keepalive = document.getElementById("keepalive");
 
@@ -85,7 +78,7 @@ document.getElementById("start").onclick = () => {
 };
 
 // ================================
-// 表示処理
+// 表示
 // ================================
 function showText(msg, sec) {
   const t = document.getElementById("text");
@@ -96,7 +89,7 @@ function showText(msg, sec) {
   else if (msg.length <=80) t.style.fontSize = "8vw";
   else                      t.style.fontSize = "6vw";
 
-  if (micTimer) clearTimeout(micTimer);
+  clearTimeout(micTimer);
   micTimer = setTimeout(() => {
     t.innerText = "待機中";
     t.style.fontSize = "6vw";
@@ -105,43 +98,32 @@ function showText(msg, sec) {
 
 // ================================
 // PC → タブレット
-// Bの進行に合わせて次のAを見る
+// A1: 本文
+// C1: 更新ID
 // ================================
 async function checkMessage() {
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
-    const csv = await res.text();
-    const rows = csv.trim().split(/\r?\n/);
+    const text = await res.text();
 
-    let lastBRow = -1;
+    const rows = text.split(/\r?\n/);
+    if (!rows[0]) return;
 
-    // B列が最後に入っている行を探す
-    rows.forEach((row, i) => {
-      const cols = row.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)
-        ?.map(v => v.replace(/^"|"$/g, ""));
-      if (cols && cols[1]?.trim()) {
-        lastBRow = i;
-      }
-    });
-
-    // 次に表示すべきAの行
-    const targetRow = lastBRow + 1;
-
-    if (targetRow <= lastShownRow) return;
-    if (targetRow >= rows.length) return;
-
-    const cols = rows[targetRow]
-      .match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)
+    // CSV安全処理（ダブルクォート除去）
+    const cols = rows[0]
+      .match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)
       ?.map(v => v.replace(/^"|"$/g, ""));
 
-    if (!cols) return;
+    if (!cols || cols.length < 3) return;
 
-    const aText = cols[0]?.trim();
-    if (!aText) return;
+    const a1 = cols[0].trim();
+    const c1 = cols[2].trim();
 
-    showText(aText, REMOTE_SEC);
-    lastShownRow = targetRow;
-
+    // ★ C1が変わった時だけ
+    if (a1 && c1 && c1 !== lastC1) {
+      lastC1 = c1;
+      showText(a1, REMOTE_SEC);
+    }
   } catch (e) {
     console.log("sheet error", e);
   }
@@ -167,10 +149,7 @@ function startMic() {
   const SpeechRecognition =
     window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  if (!SpeechRecognition) {
-    alert("音声認識非対応");
-    return;
-  }
+  if (!SpeechRecognition) return;
 
   if (recognition) recognition.stop();
 
@@ -197,6 +176,7 @@ function startMic() {
 // ================================
 setInterval(() => {
   if (micAlive && Date.now() - lastMicTime > 60000) {
+    micAlive = false;
     recognition.stop();
     document.getElementById("text").innerText =
       "何かしゃべってください";
