@@ -51,15 +51,16 @@ body {
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 const POST_URL  = "https://script.google.com/macros/s/AKfycbzsHCz4B1ndeweHQtaIKE14DSxCn65AVnwxvzO7OTduEcd4mh52JALvA3SYSzAxAsDLBQ/exec";
 
-const REMOTE_SEC = 40;   // A列表示時間
-const MIC_SEC    = 30;   // マイク表示時間
+const REMOTE_SEC = 40;   // ★ シート文字を出しっぱなしにする秒数
+const MIC_SEC    = 30;
 
 /* ================= 状態 ================= */
-let lastShownRow = -1;     // 最後に表示したA列の行番号
+let lastShownRow = -1;
 let recognition = null;
 let micTimer = null;
 let lastMicTime = Date.now();
 let micAlive = false;
+let showingRemote = false;   // ★ シート表示中フラグ
 
 const t = document.getElementById("text");
 const keepalive = document.getElementById("keepalive");
@@ -70,13 +71,14 @@ document.getElementById("start").onclick = () => {
   t.style.display = "flex";
   t.innerText = "待機中";
   startMic();
-  checkSheet();   // タップ直後にA列確認
+  checkSheet();
 };
 
 /* ================= 表示 ================= */
-function showText(msg, sec) {
+function showText(msg, sec, isRemote = false) {
   if (!msg) return;
 
+  showingRemote = isRemote;
   t.innerText = msg;
 
   if (msg.length <= 20)      t.style.fontSize = "12vw";
@@ -85,24 +87,26 @@ function showText(msg, sec) {
   else                        t.style.fontSize = "6vw";
 
   if (micTimer) clearTimeout(micTimer);
-  micTimer = setTimeout(() => {
-    t.style.fontSize = "6vw";
-    t.innerText = "待機中";
-  }, sec * 1000);
+
+  if (sec > 0) {
+    micTimer = setTimeout(() => {
+      showingRemote = false;
+      t.style.fontSize = "6vw";
+      t.innerText = "待機中";
+    }, sec * 1000);
+  }
 }
 
-/* ================= A列チェック（核心） ================= */
+/* ================= シート監視 ================= */
 async function checkSheet() {
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
     const csv = await res.text();
     const lines = csv.trim().split("\n");
-    if (!lines.length) return;
 
     let latestRow = -1;
     let latestText = "";
 
-    // A列がある行の「最大行番号」を探す
     for (let i = 0; i < lines.length; i++) {
       const aCol = (lines[i].split(",")[0] || "").trim();
       if (aCol) {
@@ -111,10 +115,9 @@ async function checkSheet() {
       }
     }
 
-    // まだ表示していない最新行だけ表示
     if (latestRow > lastShownRow) {
       lastShownRow = latestRow;
-      showText(latestText, REMOTE_SEC);
+      showText(latestText, REMOTE_SEC, true); // ★ シート表示は最優先
     }
 
   } catch (e) {
@@ -122,7 +125,6 @@ async function checkSheet() {
   }
 }
 
-// 1秒ごとに即反映
 setInterval(checkSheet, 1000);
 
 /* ================= シート送信 ================= */
@@ -155,8 +157,9 @@ function startMic() {
     const text = event.results[event.results.length - 1][0].transcript.trim();
     if (!text) return;
 
-    // マイク表示後もA列は正しく続く
-    showText(text, MIC_SEC);
+    if (!showingRemote) {
+      showText(text, MIC_SEC, false);
+    }
     sendToSheet(text);
   };
 
@@ -174,8 +177,10 @@ function startMic() {
   } catch(e){}
 }
 
-/* ================= マイク黙死対策 ================= */
+/* ================= マイク黙死対策（修正版） ================= */
 setInterval(() => {
+  if (showingRemote) return;   // ★ シート表示中は絶対に上書きしない
+
   if (micAlive && Date.now() - lastMicTime > 60000) {
     micAlive = false;
     try { recognition.stop(); } catch(e){}
