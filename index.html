@@ -28,6 +28,7 @@ body {
   text-align: center;
   padding: 5vw;
   box-sizing: border-box;
+  line-height: 1.2;
   white-space: pre-wrap;
   display: flex;
   align-items: center;
@@ -39,30 +40,45 @@ body {
 <body>
 
 <button id="start">画面をタップしてください</button>
-<div id="text">待機中</div>
+<div id="text"></div>
+
+<audio id="keepalive" loop>
+  <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=">
+</audio>
 
 <script>
-/* ===== 設定 ===== */
-const SHEET_URL =
-"https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
+/* ================= 設定 ================= */
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
+const POST_URL  = "https://script.google.com/macros/s/AKfycbzsHCz4B1ndeweHQtaIKE14DSxCn65AVnwxvzO7OTduEcd4mh52JALvA3SYSzAxAsDLBQ/exec";
 
-const REMOTE_SEC = 40;
+const REMOTE_SEC = 40;   // ★ シート文字を出しっぱなしにする秒数
+const MIC_SEC    = 30;
 
-/* ===== 状態 ===== */
+/* ================= 状態 ================= */
 let lastShownRow = -1;
-let timer = null;
+let recognition = null;
+let micTimer = null;
+let lastMicTime = Date.now();
+let micAlive = false;
+let showingRemote = false;   // ★ シート表示中フラグ
 
 const t = document.getElementById("text");
+const keepalive = document.getElementById("keepalive");
 
-/* ===== 初回 ===== */
+/* ================= 初回タップ ================= */
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
   t.style.display = "flex";
+  t.innerText = "待機中";
+  startMic();
   checkSheet();
 };
 
-/* ===== 表示 ===== */
-function showText(msg, sec) {
+/* ================= 表示 ================= */
+function showText(msg, sec, isRemote = false) {
+  if (!msg) return;
+
+  showingRemote = isRemote;
   t.innerText = msg;
 
   if (msg.length <= 20)      t.style.fontSize = "12vw";
@@ -70,41 +86,114 @@ function showText(msg, sec) {
   else if (msg.length <= 80) t.style.fontSize = "8vw";
   else                        t.style.fontSize = "6vw";
 
-  if (timer) clearTimeout(timer);
-  timer = setTimeout(() => {
-    t.innerText = "待機中";
-  }, sec * 1000);
+  if (micTimer) clearTimeout(micTimer);
+
+  if (sec > 0) {
+    micTimer = setTimeout(() => {
+      showingRemote = false;
+      t.style.fontSize = "6vw";
+      t.innerText = "待機中";
+    }, sec * 1000);
+  }
 }
 
-/* ===== シート監視（最優先） ===== */
+/* ================= シート監視 ================= */
 async function checkSheet() {
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
     const csv = await res.text();
-    const rows = csv.trim().split("\n");
+    const lines = csv.trim().split("\n");
 
-    let row = -1;
-    let text = "";
+    let latestRow = -1;
+    let latestText = "";
 
-    for (let i = 0; i < rows.length; i++) {
-      const a = (rows[i].split(",")[0] || "").trim();
-      if (a) {
-        row = i;
-        text = a;
+    for (let i = 0; i < lines.length; i++) {
+      const aCol = (lines[i].split(",")[0] || "").trim();
+      if (aCol) {
+        latestRow = i;
+        latestText = aCol;
       }
     }
 
-    if (row > lastShownRow) {
-      lastShownRow = row;
-      showText(text, REMOTE_SEC);
+    if (latestRow > lastShownRow) {
+      lastShownRow = latestRow;
+      showText(latestText, REMOTE_SEC, true); // ★ シート表示は最優先
     }
 
   } catch (e) {
-    console.log(e);
+    console.log("sheet error", e);
   }
 }
 
 setInterval(checkSheet, 1000);
+
+/* ================= シート送信 ================= */
+function sendToSheet(text) {
+  fetch(POST_URL, {
+    method: "POST",
+    mode: "no-cors",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  });
+}
+
+/* ================= マイク ================= */
+function startMic() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return;
+
+  if (recognition) {
+    try { recognition.stop(); } catch(e){}
+  }
+
+  recognition = new SpeechRecognition();
+  recognition.lang = "ja-JP";
+  recognition.continuous = true;
+  recognition.interimResults = false;
+
+  recognition.onresult = (event) => {
+    micAlive = true;
+    lastMicTime = Date.now();
+    const text = event.results[event.results.length - 1][0].transcript.trim();
+    if (!text) return;
+
+    if (!showingRemote) {
+      showText(text, MIC_SEC, false);
+    }
+    sendToSheet(text);
+  };
+
+  recognition.onerror = () => { micAlive = false; };
+  recognition.onend = () => {
+    micAlive = false;
+    setTimeout(startMic, 500);
+  };
+
+  try {
+    keepalive.volume = 0.001;
+    keepalive.play().catch(()=>{});
+    recognition.start();
+    micAlive = true;
+  } catch(e){}
+}
+
+/* ================= マイク黙死対策（修正版） ================= */
+setInterval(() => {
+  if (showingRemote) return;   // ★ シート表示中は絶対に上書きしない
+
+  if (micAlive && Date.now() - lastMicTime > 60000) {
+    micAlive = false;
+    try { recognition.stop(); } catch(e){}
+    t.innerText = "何かしゃべってください";
+  }
+}, 5000);
+
+/* ================= 画面復帰 ================= */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !micAlive) {
+    startMic();
+  }
+});
 </script>
 
 </body>
