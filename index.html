@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>見守り文字ボード</title>
+
 <style>
 body {
   margin: 0;
@@ -35,6 +36,7 @@ body {
 }
 </style>
 </head>
+
 <body>
 
 <button id="start">画面をタップしてください</button>
@@ -45,19 +47,25 @@ body {
 </audio>
 
 <script>
+/* ================= 設定 ================= */
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 const POST_URL  = "https://script.google.com/macros/s/AKfycbzsHCz4B1ndeweHQtaIKE14DSxCn65AVnwxvzO7OTduEcd4mh52JALvA3SYSzAxAsDLBQ/exec";
+
 const MIC_SEC = 30;
 
-let lastShownRow = -1;
+/* ================= 状態 ================= */
+let lastShownRow = -1;    // 表示済みの行番号
+let lastSheetRow = -1;    // 取得済みの最新行番号
+let lastSheetText = "";   // 最新A列文字
+
 let recognition = null;
 let micTimer = null;
 let micAlive = false;
-let lastSheetText = "";
 
 const t = document.getElementById("text");
 const keepalive = document.getElementById("keepalive");
 
+/* ================= 初回タップ ================= */
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
   t.style.display = "flex";
@@ -66,9 +74,11 @@ document.getElementById("start").onclick = () => {
   checkSheet();
 };
 
+/* ================= 表示 ================= */
 function showText(msg) {
   if (!msg) return;
   t.innerText = msg;
+
   if (msg.length <= 20)      t.style.fontSize = "12vw";
   else if (msg.length <= 40) t.style.fontSize = "10vw";
   else if (msg.length <= 80) t.style.fontSize = "8vw";
@@ -78,37 +88,40 @@ function showText(msg) {
 /* ================= シート監視 ================= */
 async function checkSheet() {
   try {
-    const res = await fetch(SHEET_URL + "&_=" + Date.now(), { cache: "no-store" });
+    const res = await fetch(SHEET_URL + "&_=" + Date.now());
     const csv = await res.text();
     const lines = csv.trim().split("\n");
     if (!lines.length) return;
 
-    // 最新行を取得
     let latestRow = -1;
     let latestText = "";
+
     for (let i = 0; i < lines.length; i++) {
       const cols = lines[i].split(",");
       const aCol = (cols[0] || "").trim();
-      const cCol = (cols[2] || "").trim(); // 時刻
+      const cCol = (cols[2] || "").trim(); // タイムスタンプ
+
       if (aCol && cCol) {
         latestRow = i;
         latestText = aCol;
       }
     }
 
-    // 新しいA列があれば即表示
-    if (latestRow > lastShownRow && latestText !== lastSheetText) {
-      lastShownRow = latestRow;
+    if (latestRow > lastSheetRow) {
+      lastSheetRow = latestRow;
       lastSheetText = latestText;
-      showText(latestText);
+
+      // マイク表示中でなければ即表示
+      if (!micTimer && lastSheetRow > lastShownRow) {
+        lastShownRow = lastSheetRow;
+        showText(lastSheetText);
+      }
     }
 
-  } catch(e) {
+  } catch (e) {
     console.log("sheet error", e);
   }
 }
-
-// 0.5秒ごとにチェック
 setInterval(checkSheet, 500);
 
 /* ================= シート送信 ================= */
@@ -137,16 +150,21 @@ function startMic() {
 
   recognition.onresult = (e) => {
     micAlive = true;
-    const text = e.results[e.results.length-1][0].transcript.trim();
+    const text = e.results[e.results.length - 1][0].transcript.trim();
     if (!text) return;
 
     showText(text);
     sendToSheet(text);
 
+    // タイマーで古いA列文字を上書きさせない
     if (micTimer) clearTimeout(micTimer);
     micTimer = setTimeout(() => {
       micTimer = null;
-      if (lastSheetText) showText(lastSheetText);
+      // シートに未表示の新しい行があれば表示
+      if (lastSheetRow > lastShownRow) {
+        lastShownRow = lastSheetRow;
+        showText(lastSheetText);
+      }
     }, MIC_SEC * 1000);
   };
 
