@@ -2,7 +2,6 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>見守り文字ボード</title>
 
 <style>
@@ -12,149 +11,102 @@ body {
   color: white;
   font-family: sans-serif;
 }
-#start {
-  width: 100vw;
-  height: 100vh;
-  font-size: 8vw;
-  background: black;
-  color: white;
-  border: none;
-}
 #text {
-  display: none;
-  width: 100vw;
-  height: 100vh;
   font-size: 6vw;
+  margin-top: 30vh;
   text-align: center;
-  padding: 5vw;
-  box-sizing: border-box;
-  white-space: pre-wrap;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+}
+#status {
+  position: fixed;
+  bottom: 10px;
+  width: 100%;
+  font-size: 2.5vw;
+  color: #0f0;
+  text-align: center;
+}
+#mic {
+  position: fixed;
+  top: 10px;
+  right: 20px;
+  font-size: 3vw;
 }
 </style>
 </head>
 
 <body>
-
-<button id="start">画面をタップしてください</button>
-<div id="text"></div>
-
-<audio id="keepalive" loop>
-  <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=">
-</audio>
+<div id="mic">🎤</div>
+<div id="text">待機中</div>
+<div id="status">起動中</div>
 
 <script>
-/* ===== 設定 ===== */
-const SHEET_URL = "（あなたのCSV URL）";
-const POST_URL  = "（あなたのGAS URL）";
-const MIC_SEC = 30;
+let lastTime = "";   // ← C列（時刻）だけで更新判定
+let recognition;
 
-/* ===== 状態 ===== */
-let lastTimestamp = "";   // ★ 行番号ではなく「時刻」
-let lastSheetText = "";
-let recognition = null;
-let micTimer = null;
+/* ===== シート監視（マイクと完全分離）===== */
+function pollSheet() {
+  google.script.run.withSuccessHandler(data => {
+    if (!data) return;
 
-const t = document.getElementById("text");
-const keepalive = document.getElementById("keepalive");
+    // C列が変わったら「更新された」と判断
+    if (data.time && data.time !== lastTime) {
+      lastTime = data.time;
 
-/* ===== 初回 ===== */
-document.getElementById("start").onclick = () => {
-  document.getElementById("start").style.display = "none";
-  t.style.display = "flex";
-  t.innerText = "待機中";
-  startMic();
-  checkSheet();
-};
-
-/* ===== 表示 ===== */
-function showText(msg) {
-  if (!msg) return;
-  t.innerText = msg;
-
-  if (msg.length <= 20)      t.style.fontSize = "12vw";
-  else if (msg.length <= 40) t.style.fontSize = "10vw";
-  else if (msg.length <= 80) t.style.fontSize = "8vw";
-  else                       t.style.fontSize = "6vw";
-}
-
-/* ===== シート監視（時刻ベース・完全版） ===== */
-async function checkSheet() {
-  try {
-    const res = await fetch(SHEET_URL + "&_=" + Date.now());
-    const csv = await res.text();
-    const lines = csv.trim().split("\n");
-
-    let newestTime = lastTimestamp;
-    let newestText = "";
-
-    for (const line of lines) {
-      const cols = line.split(",");
-      const textA = (cols[0] || "").trim(); // A列
-      const timeC = (cols[2] || "").trim(); // C列（時刻）
-
-      if (!textA || !timeC) continue;
-
-      if (!newestTime || timeC > newestTime) {
-        newestTime = timeC;
-        newestText = textA;
+      // A列は空でもそのまま表示（消さない）
+      if (data.text !== "") {
+        document.getElementById("text").innerText = data.text;
       }
-    }
 
-    if (newestTime && newestTime !== lastTimestamp) {
-      lastTimestamp = newestTime;
-      lastSheetText = newestText;
-      showText(newestText);
+      document.getElementById("status").innerText =
+        "更新：" + data.time;
     }
-
-  } catch (e) {
-    console.log("sheet error", e);
-  }
+  }).getSheetData();
 }
 
-setInterval(checkSheet, 1000);
+// ★ 常に動かす（マイク状態に関係なし）
+setInterval(pollSheet, 3000);
 
-/* ===== シート送信（B列想定） ===== */
-function sendToSheet(text) {
-  fetch(POST_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text })
-  });
-}
-
-/* ===== マイク ===== */
+/* ===== マイク（常時再起動）===== */
 function startMic() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return;
+  if (!('webkitSpeechRecognition' in window)) {
+    document.getElementById("status").innerText = "音声認識非対応";
+    return;
+  }
 
-  recognition = new SR();
+  recognition = new webkitSpeechRecognition();
   recognition.lang = "ja-JP";
   recognition.continuous = true;
-  recognition.interimResults = false;
+  recognition.interimResults = true;
 
-  recognition.onresult = (e) => {
-    const text = e.results[e.results.length - 1][0].transcript.trim();
-    if (!text) return;
-
-    showText(text);
-    sendToSheet(text);
-
-    clearTimeout(micTimer);
-    micTimer = setTimeout(() => {
-      if (lastSheetText) showText(lastSheetText);
-    }, MIC_SEC * 1000);
+  recognition.onstart = () => {
+    document.getElementById("mic").innerText = "🎤 ON";
   };
 
-  recognition.onend = () => setTimeout(startMic, 500);
+  recognition.onend = () => {
+    document.getElementById("mic").innerText = "🎤 再接続";
+    setTimeout(startMic, 500); // ★止まらせない
+  };
 
-  keepalive.volume = 0.001;
-  keepalive.play().catch(()=>{});
+  recognition.onerror = () => {
+    recognition.stop();
+  };
+
+  recognition.onresult = (event) => {
+    let text = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      text += event.results[i][0].transcript;
+    }
+
+    // 無音時は何もしない（既存表示を消さない）
+    if (text.trim() !== "") {
+      document.getElementById("text").innerText = text;
+      document.getElementById("status").innerText = "マイク入力中";
+    }
+  };
+
   recognition.start();
 }
-</script>
 
+startMic();
+</script>
 </body>
 </html>
