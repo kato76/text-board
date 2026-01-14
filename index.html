@@ -47,11 +47,13 @@ body {
 </audio>
 
 <script>
+/* ================= 設定 ================= */
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
 const POST_URL  = "https://script.google.com/macros/s/AKfycbzsHCz4B1ndeweHQtaIKE14DSxCn65AVnwxvzO7OTduEcd4mh52JALvA3SYSzAxAsDLBQ/exec";
 
 const MIC_SEC = 30;
 
+/* ================= 状態 ================= */
 let lastShownRow = -1;
 let recognition = null;
 let micTimer = null;
@@ -62,6 +64,7 @@ let lastSheetText = "";
 const t = document.getElementById("text");
 const keepalive = document.getElementById("keepalive");
 
+/* ================= 初回タップ ================= */
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
   t.style.display = "flex";
@@ -70,6 +73,7 @@ document.getElementById("start").onclick = () => {
   checkSheet();
 };
 
+/* ================= 表示 ================= */
 function showText(msg) {
   if (!msg) return;
   t.innerText = msg;
@@ -80,6 +84,7 @@ function showText(msg) {
   else                       t.style.fontSize = "6vw";
 }
 
+/* ================= シート監視（A列＋C列対応） ================= */
 async function checkSheet() {
   try {
     const res = await fetch(SHEET_URL + "&_=" + Date.now());
@@ -97,16 +102,22 @@ async function checkSheet() {
       }
     }
 
+    // 新しい行がある場合のみ表示
     if (latestRow > lastShownRow) {
       lastShownRow = latestRow;
       lastSheetText = latestText;
-      showText(latestText);
-    }
-  } catch {}
-}
-setInterval(checkSheet, 1000);
 
-/* ★ 完全復元ポイント */
+      // マイク表示中でなければ即表示
+      if (!micTimer) showText(latestText);
+    }
+
+  } catch (e) { console.log("sheet error", e); }
+}
+
+// 反映タイミングを0.5秒に短縮
+setInterval(checkSheet, 500);
+
+/* ================= シート送信 ================= */
 function sendToSheet(text) {
   fetch(POST_URL, {
     method: "POST",
@@ -116,15 +127,24 @@ function sendToSheet(text) {
   });
 }
 
+/* ================= マイク ================= */
 function startMic() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) return;
 
+  if (recognition) {
+    try { recognition.stop(); } catch(e){}
+  }
+
   recognition = new SpeechRecognition();
   recognition.lang = "ja-JP";
   recognition.continuous = true;
+  recognition.interimResults = false;
 
   recognition.onresult = (e) => {
+    micAlive = true;
+    lastMicTime = Date.now();
+
     const text = e.results[e.results.length - 1][0].transcript.trim();
     if (!text) return;
 
@@ -133,16 +153,25 @@ function startMic() {
 
     if (micTimer) clearTimeout(micTimer);
     micTimer = setTimeout(() => {
+      micTimer = null; // タイマー終了
       if (lastSheetText) showText(lastSheetText);
     }, MIC_SEC * 1000);
   };
 
-  recognition.onend = () => setTimeout(startMic, 500);
+  recognition.onerror = () => { micAlive = false; };
+  recognition.onend = () => { micAlive = false; setTimeout(startMic, 500); };
 
   keepalive.volume = 0.001;
   keepalive.play().catch(()=>{});
   recognition.start();
 }
+
+/* ================= 画面復帰 ================= */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !micAlive) {
+    startMic();
+  }
+});
 </script>
 
 </body>
