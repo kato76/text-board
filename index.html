@@ -27,7 +27,6 @@ body {
   font-size: 6vw;
   text-align: center;
   padding: 5vw;
-  box-sizing: border-box;
   line-height: 1.2;
   white-space: pre-wrap;
   display: flex;
@@ -48,15 +47,21 @@ body {
 
 <script>
 /* ================= 設定 ================= */
-const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRHWnIu3D2JHACJzdDlgjIxnG3kNDpQfQPuOvRDKX9XzcuLaOab6HK_EohUXOdf_n-8UAgfanbgcEMH/pub?gid=0&single=true&output=csv";
-const POST_URL  = "https://script.google.com/macros/s/AKfycbzsHCz4B1ndeweHQtaIKE14DSxCn65AVnwxvzO7OTduEcd4mh52JALvA3SYSzAxAsDLBQ/exec";
 
-const MIC_SEC = 30;
+// ★ A列最新値を高速返す API（あなたの doGet）
+const SHEET_URL =
+ "https://script.google.com/macros/s/AKfycbwCPJTgEG0W7tk_Y7Nj_w7UAftj-51jO1qwxrnZ_2zQI6wj46Vedb-npqgeowafIfzCmA/exec";
 
-/* ================= 状態 ================= */
-let lastShownRow = -1;    // 表示済みの行番号
-let lastSheetRow = -1;    // 取得済みの最新行番号
-let lastSheetText = "";   // 最新A列文字
+// ★ マイク内容を送信する（今まで通り）
+const POST_URL =
+ "https://script.google.com/macros/s/AKfycbzsHCz4B1ndeweHQtaIKE14DSxCn65AVnwxvzO7OTduEcd4mh52JALvA3SYSzAxAsDLBQ/exec";
+
+const MIC_SEC = 25; // マイク表示継続時間
+
+/* ================= 状態管理 ================= */
+let lastShownRow = -1;      // 画面に表示した行
+let lastSheetRow = -1;      // シートから取得した最新行
+let lastSheetText = "";     // 最新A列の文字
 
 let recognition = null;
 let micTimer = null;
@@ -65,18 +70,22 @@ let micAlive = false;
 const t = document.getElementById("text");
 const keepalive = document.getElementById("keepalive");
 
+
 /* ================= 初回タップ ================= */
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
   t.style.display = "flex";
   t.innerText = "待機中";
+
   startMic();
   checkSheet();
 };
 
-/* ================= 表示 ================= */
+
+/* ================= 表示関数 ================= */
 function showText(msg) {
   if (!msg) return;
+
   t.innerText = msg;
 
   if (msg.length <= 20)      t.style.fontSize = "12vw";
@@ -85,36 +94,27 @@ function showText(msg) {
   else                       t.style.fontSize = "6vw";
 }
 
-/* ================= シート監視 ================= */
+
+/* ================= A列反映：高速JSON版 ================= */
 async function checkSheet() {
   try {
-    const res = await fetch(SHEET_URL + "&_=" + Date.now());
-    const csv = await res.text();
-    const lines = csv.trim().split("\n");
-    if (!lines.length) return;
+    const res = await fetch(SHEET_URL + "?t=" + Date.now());
+    const data = await res.json();
 
-    let latestRow = -1;
-    let latestText = "";
+    if (data.status !== "ok") return;
 
-    for (let i = 0; i < lines.length; i++) {
-      const cols = lines[i].split(",");
-      const aCol = (cols[0] || "").trim();
-      const cCol = (cols[2] || "").trim(); // タイムスタンプ
+    const row = data.row;
+    const text = data.text;
 
-      if (aCol && cCol) {
-        latestRow = i;
-        latestText = aCol;
-      }
-    }
+    // 新しい行だけ処理
+    if (row > lastSheetRow) {
+      lastSheetRow = row;
+      lastSheetText = text;
 
-    if (latestRow > lastSheetRow) {
-      lastSheetRow = latestRow;
-      lastSheetText = latestText;
-
-      // マイク表示中でなければ即表示
-      if (!micTimer && lastSheetRow > lastShownRow) {
-        lastShownRow = lastSheetRow;
-        showText(lastSheetText);
+      // マイクで話していない間だけ即表示
+      if (!micTimer && row > lastShownRow) {
+        lastShownRow = row;
+        showText(text);
       }
     }
 
@@ -122,9 +122,12 @@ async function checkSheet() {
     console.log("sheet error", e);
   }
 }
+
+// ★ 0.5秒ごとに高速チェック
 setInterval(checkSheet, 500);
 
-/* ================= シート送信 ================= */
+
+/* ================= シートにマイク文字送信 ================= */
 function sendToSheet(text) {
   fetch(POST_URL, {
     method: "POST",
@@ -134,9 +137,12 @@ function sendToSheet(text) {
   });
 }
 
-/* ================= マイク ================= */
+
+/* ================= マイク起動 ================= */
 function startMic() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
+
   if (!SpeechRecognition) return;
 
   if (recognition) {
@@ -146,21 +152,23 @@ function startMic() {
   recognition = new SpeechRecognition();
   recognition.lang = "ja-JP";
   recognition.continuous = true;
-  recognition.interimResults = false;
 
   recognition.onresult = (e) => {
     micAlive = true;
+
     const text = e.results[e.results.length - 1][0].transcript.trim();
     if (!text) return;
 
+    // マイク入力を優先表示
     showText(text);
     sendToSheet(text);
 
-    // タイマーで古いA列文字を上書きさせない
+    // マイクタイマー開始（この間はA列割り込み禁止）
     if (micTimer) clearTimeout(micTimer);
     micTimer = setTimeout(() => {
       micTimer = null;
-      // シートに未表示の新しい行があれば表示
+
+      // マイク後に未表示のA列があれば表示
       if (lastSheetRow > lastShownRow) {
         lastShownRow = lastSheetRow;
         showText(lastSheetText);
@@ -168,13 +176,16 @@ function startMic() {
     }, MIC_SEC * 1000);
   };
 
-  recognition.onerror = () => { micAlive = false; };
-  recognition.onend = () => { micAlive = false; setTimeout(startMic, 500); };
+  recognition.onend = () => {
+    micAlive = false;
+    setTimeout(startMic, 500);
+  };
 
   keepalive.volume = 0.001;
   keepalive.play().catch(()=>{});
   recognition.start();
 }
+
 
 /* ================= 画面復帰 ================= */
 document.addEventListener("visibilitychange", () => {
