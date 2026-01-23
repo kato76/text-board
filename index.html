@@ -1,146 +1,167 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>見守り文字ボード</title>
-
-<style>
-body {
-  margin: 0;
-  background: black;
-  color: white;
-  font-family: sans-serif;
-}
-#start {
-  width: 100vw;
-  height: 100vh;
-  font-size: 8vw;
-  background: black;
-  color: white;
-  border: none;
-}
-#text {
-  display: none;
-  width: 100vw;
-  height: 100vh;
-  font-size: 6vw;
-  text-align: center;
-  padding: 5vw;
-  line-height: 1.2;
-  white-space: pre-wrap;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>見守り文字ボード</title>
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      color: white;
+      font-family: sans-serif;
+    }
+    #start {
+      width: 100vw;
+      height: 100vh;
+      font-size: 8vw;
+      background: black;
+      color: white;
+      border: none;
+    }
+    #text {
+      display: none;
+      width: 100vw;
+      height: 100vh;
+      font-size: 6vw;
+      text-align: center;
+      padding: 5vw;
+      line-height: 1.2;
+      white-space: pre-wrap;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  </style>
 </head>
 
 <body>
 
-<button id="start">画面をタップしてください</button>
-<div id="text"></div>
+  <button id="start">画面をタップしてください</button>
+  <div id="text"></div>
 
-<audio id="keepalive" loop>
-  <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=">
-</audio>
+  <audio id="keepalive" loop>
+    <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=">
+  </audio>
 
-<script>
-/* ==== 設定 ==== */
-const POST_URL = "https://script.google.com/macros/s/AKfycbzsHCz4B1ndeweHQtaIKE14DSxCn65AVnwxvzO7OTduEcd4mh52JALvA3SYSzAxAsDLBQ/exec";
-//const GET_URL  = POST_URL;  // GET も同じ URL
-const GET_URL  = "https://script.google.com/macros/s/AKfycbzNHg6HDMsCaT_OlPssMzjsgi_PIM5il7PePr4rLQw1RCVHZTQVZ967YDkZDLeQnocWuw/exec";
+  <script>
+    /* ==== 設定 ==== */
+    const POST_URL = "https://script.google.com/macros/s/AKfycbzsHCz4B1ndeweHQtaIKE14DSxCn65AVnwxvzO7OTduEcd4mh52JALvA3SYSzAxAsDLBQ/exec";
+    const GET_URL  = "https://script.google.com/macros/s/AKfycbzNHg6HDMsCaT_OlPssMzjsgi_PIM5il7PePr4rLQw1RCVHZTQVZ967YDkZDLeQnocWuw/exec";
 
-const MIC_SEC = 30;
+    const MIC_SEC = 30; // マイク再表示待ち時間（秒）
 
-/* ==== 状態 ==== */
-let lastRow = -1;
-let lastSheetText = "";
-let recognition = null;
-let micTimer = null;
+    /* ==== 状態変数 ==== */
+    let lastRow = -1;
+    let lastSheetText = "";
+    let recognition = null;
+    let micTimer = null;
+    let micPaused = false;
 
-const t = document.getElementById("text");
-const keepalive = document.getElementById("keepalive");
+    const t = document.getElementById("text");
+    const keepalive = document.getElementById("keepalive");
 
-/* ==== 初回タップ ==== */
-document.getElementById("start").onclick = () => {
-  document.getElementById("start").style.display = "none";
-  t.style.display = "flex";
-  t.innerText = "待機中";
-  startMic();
-  pollSheet();
-};
+    /* ==== 初回起動 ==== */
+    document.getElementById("start").onclick = () => {
+      document.getElementById("start").style.display = "none";
+      t.style.display = "flex";
+      t.innerText = "待機中";
+      startMic();
+      pollSheet();
+    };
 
-/* ==== 表示 ==== */
-function showText(msg) {
-  if (!msg) return;
-  t.innerText = msg;
+    /* ==== 表示処理 ==== */
+    function showText(msg) {
+      if (!msg) return;
+      t.innerText = msg;
 
-  if (msg.length <= 20) t.style.fontSize = "12vw";
-  else if (msg.length <= 40) t.style.fontSize = "10vw";
-  else if (msg.length <= 80) t.style.fontSize = "8vw";
-  else t.style.fontSize = "6vw";
-}
-
-/* ==== シート監視 (0.5秒ごと) 最速 ==== */
-async function pollSheet() {
-  try {
-    const res = await fetch(GET_URL + "?t=" + Date.now());
-    const data = await res.json();
-
-    if (data.row > lastRow) {
-      lastRow = data.row;
-      lastSheetText = data.text;
-
-      // マイク表示中でなければ表示
-      if (!micTimer) showText(lastSheetText);
+      if (msg.length <= 20) t.style.fontSize = "12vw";
+      else if (msg.length <= 40) t.style.fontSize = "10vw";
+      else if (msg.length <= 80) t.style.fontSize = "8vw";
+      else t.style.fontSize = "6vw";
     }
 
-  } catch (e) {}
+    /* ==== マイク一時停止・再開 ==== */
+    function pauseMic() {
+      if (recognition && !micPaused) {
+        recognition.stop();
+        micPaused = true;
+      }
+    }
 
-  setTimeout(pollSheet, 500);
-}
+    function resumeMic() {
+      if (micPaused) {
+        startMic();  // 再初期化
+      }
+    }
 
-/* ==== 送信 ==== */
-function sendToSheet(text) {
-  fetch(POST_URL, {
-    method: "POST",
-    mode: "no-cors",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text })
-  });
-}
+    /* ==== Googleスプレッドシート監視 ==== */
+    async function pollSheet() {
+      try {
+        const res = await fetch(GET_URL + "?t=" + Date.now());
+        const data = await res.json();
 
-/* ==== マイク ==== */
-function startMic() {
-  const S = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!S) return;
+        if (data.row > lastRow || data.text !== lastSheetText) {
+          lastRow = data.row;
+          lastSheetText = data.text;
 
-  recognition = new S();
-  recognition.lang = "ja-JP";
-  recognition.continuous = true;
+          pauseMic();                // 🔴 マイク一時停止
+          showText(lastSheetText);   // 表示更新
 
-  recognition.onresult = (e) => {
-    const text = e.results[e.results.length - 1][0].transcript.trim();
-    if (!text) return;
+          setTimeout(() => {
+            resumeMic();             // 🔵 マイク再開
+          }, 5000); // 5秒間は表示をキープ
+        }
+      } catch (e) {}
 
-    showText(text);
-    sendToSheet(text);
+      setTimeout(pollSheet, 500);
+    }
 
-    if (micTimer) clearTimeout(micTimer);
-    micTimer = setTimeout(() => {
-      micTimer = null;
-      if (lastSheetText) showText(lastSheetText);
-    }, MIC_SEC * 1000);
-  };
+    /* ==== 発話送信 ==== */
+    function sendToSheet(text) {
+      fetch(POST_URL, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
+      });
+    }
 
-  recognition.onend = () => setTimeout(startMic, 500);
+    /* ==== マイク開始処理 ==== */
+    function startMic() {
+      const S = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!S) return;
 
-  keepalive.volume = 0.001;
-  keepalive.play().catch(()=>{});
-  recognition.start();
-}
-</script>
+      recognition = new S();
+      recognition.lang = "ja-JP";
+      recognition.continuous = true;
+      micPaused = false;
+
+      recognition.onresult = (e) => {
+        const text = e.results[e.results.length - 1][0].transcript.trim();
+        if (!text) return;
+
+        showText(text);
+        sendToSheet(text);
+
+        if (micTimer) clearTimeout(micTimer);
+        micTimer = setTimeout(() => {
+          micTimer = null;
+          if (lastSheetText) showText(lastSheetText);
+        }, MIC_SEC * 1000);
+      };
+
+      recognition.onend = () => {
+        if (!micPaused) {
+          setTimeout(startMic, 500);
+        }
+      };
+
+      keepalive.volume = 0.001;
+      keepalive.play().catch(() => {});
+      recognition.start();
+    }
+  </script>
 
 </body>
 </html>
