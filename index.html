@@ -46,88 +46,61 @@ body {
 </audio>
 
 <script>
-/* ================= 設定 ================= */
+/* ==== 設定 ==== */
+const POST_URL = "https://script.google.com/macros/s/AKfycbzsHCz4B1ndeweHQtaIKE14DSxCn65AVnwxvzO7OTduEcd4mh52JALvA3SYSzAxAsDLBQ/exec";
+const GET_URL  = POST_URL;  // GET も同じ URL
 
-// ★ A列最新値を高速返す API（あなたの doGet）
-const SHEET_URL =
- "https://script.google.com/macros/s/AKfycbwCPJTgEG0W7tk_Y7Nj_w7UAftj-51jO1qwxrnZ_2zQI6wj46Vedb-npqgeowafIfzCmA/exec";
+const MIC_SEC = 30;
 
-// ★ マイク内容を送信する（今まで通り）
-const POST_URL =
- "https://script.google.com/macros/s/AKfycbzsHCz4B1ndeweHQtaIKE14DSxCn65AVnwxvzO7OTduEcd4mh52JALvA3SYSzAxAsDLBQ/exec";
-
-const MIC_SEC = 25; // マイク表示継続時間
-
-/* ================= 状態管理 ================= */
-let lastShownRow = -1;      // 画面に表示した行
-let lastSheetRow = -1;      // シートから取得した最新行
-let lastSheetText = "";     // 最新A列の文字
-
+/* ==== 状態 ==== */
+let lastRow = -1;
+let lastSheetText = "";
 let recognition = null;
 let micTimer = null;
-let micAlive = false;
 
 const t = document.getElementById("text");
 const keepalive = document.getElementById("keepalive");
 
-
-/* ================= 初回タップ ================= */
+/* ==== 初回タップ ==== */
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
   t.style.display = "flex";
   t.innerText = "待機中";
-
   startMic();
-  checkSheet();
+  pollSheet();
 };
 
-
-/* ================= 表示関数 ================= */
+/* ==== 表示 ==== */
 function showText(msg) {
   if (!msg) return;
-
   t.innerText = msg;
 
-  if (msg.length <= 20)      t.style.fontSize = "12vw";
+  if (msg.length <= 20) t.style.fontSize = "12vw";
   else if (msg.length <= 40) t.style.fontSize = "10vw";
   else if (msg.length <= 80) t.style.fontSize = "8vw";
-  else                       t.style.fontSize = "6vw";
+  else t.style.fontSize = "6vw";
 }
 
-
-/* ================= A列反映：高速JSON版 ================= */
-async function checkSheet() {
+/* ==== シート監視 (0.5秒ごと) 最速 ==== */
+async function pollSheet() {
   try {
-    const res = await fetch(SHEET_URL + "?t=" + Date.now());
+    const res = await fetch(GET_URL + "?t=" + Date.now());
     const data = await res.json();
 
-    if (data.status !== "ok") return;
+    if (data.row > lastRow) {
+      lastRow = data.row;
+      lastSheetText = data.text;
 
-    const row = data.row;
-    const text = data.text;
-
-    // 新しい行だけ処理
-    if (row > lastSheetRow) {
-      lastSheetRow = row;
-      lastSheetText = text;
-
-      // マイクで話していない間だけ即表示
-      if (!micTimer && row > lastShownRow) {
-        lastShownRow = row;
-        showText(text);
-      }
+      // マイク表示中でなければ表示
+      if (!micTimer) showText(lastSheetText);
     }
 
-  } catch (e) {
-    console.log("sheet error", e);
-  }
+  } catch (e) {}
+
+  setTimeout(pollSheet, 500);
 }
 
-// ★ 0.5秒ごとに高速チェック
-setInterval(checkSheet, 500);
-
-
-/* ================= シートにマイク文字送信 ================= */
+/* ==== 送信 ==== */
 function sendToSheet(text) {
   fetch(POST_URL, {
     method: "POST",
@@ -137,62 +110,35 @@ function sendToSheet(text) {
   });
 }
 
-
-/* ================= マイク起動 ================= */
+/* ==== マイク ==== */
 function startMic() {
-  const SpeechRecognition =
-    window.SpeechRecognition || window.webkitSpeechRecognition;
+  const S = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!S) return;
 
-  if (!SpeechRecognition) return;
-
-  if (recognition) {
-    try { recognition.stop(); } catch(e){}
-  }
-
-  recognition = new SpeechRecognition();
+  recognition = new S();
   recognition.lang = "ja-JP";
   recognition.continuous = true;
 
   recognition.onresult = (e) => {
-    micAlive = true;
-
     const text = e.results[e.results.length - 1][0].transcript.trim();
     if (!text) return;
 
-    // マイク入力を優先表示
     showText(text);
     sendToSheet(text);
 
-    // マイクタイマー開始（この間はA列割り込み禁止）
     if (micTimer) clearTimeout(micTimer);
     micTimer = setTimeout(() => {
       micTimer = null;
-
-      // マイク後に未表示のA列があれば表示
-      if (lastSheetRow > lastShownRow) {
-        lastShownRow = lastSheetRow;
-        showText(lastSheetText);
-      }
+      if (lastSheetText) showText(lastSheetText);
     }, MIC_SEC * 1000);
   };
 
-  recognition.onend = () => {
-    micAlive = false;
-    setTimeout(startMic, 500);
-  };
+  recognition.onend = () => setTimeout(startMic, 500);
 
   keepalive.volume = 0.001;
   keepalive.play().catch(()=>{});
   recognition.start();
 }
-
-
-/* ================= 画面復帰 ================= */
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !micAlive) {
-    startMic();
-  }
-});
 </script>
 
 </body>
