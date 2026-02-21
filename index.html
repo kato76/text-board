@@ -1,61 +1,68 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>見守り文字ボード</title>
-  <style>
-    body {
-      margin: 0;
-      background: black;
-      color: white;
-      font-family: sans-serif;
-    }
-    #start {
-      width: 100vw;
-      height: 100vh;
-      font-size: 8vw;
-      background: black;
-      color: white;
-      border: none;
-    }
-    #text {
-      display: none;
-      width: 100vw;
-      height: 100vh;
-      font-size: 6vw;
-      text-align: center;
-      padding: 5vw;
-      line-height: 1.2;
-      white-space: pre-wrap;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>見守り文字ボード</title>
+
+<style>
+body {
+  margin: 0;
+  background: black;
+  color: white;
+  font-family: sans-serif;
+}
+#start {
+  width: 100vw;
+  height: 100vh;
+  font-size: 8vw;
+  background: black;
+  color: white;
+  border: none;
+}
+#text {
+  display: none;
+  width: 100vw;
+  height: 100vh;
+  text-align: center;
+  padding: 5vw;
+  line-height: 1.2;
+  white-space: pre-wrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 6vw;
+}
+</style>
 </head>
+
 <body>
 
 <button id="start">画面をタップしてください</button>
 <div id="text"></div>
 
-<audio id="keepalive" loop>
-  <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=">
-</audio>
-
 <script>
-const POST_URL = "https://script.google.com/macros/s/AKfycbzsHCz4B1ndeweHQtaIKE14DSxCn65AVnwxvzO7OTduEcd4mh52JALvA3SYSzAxAsDLBQ/exec";
-const GET_URL = "https://script.google.com/macros/s/AKfycbyZaEIe-71U4BHwx-0yJZ_CvIrXoh6_iuvfK12UCSe5CHtMnrPR2FxJ9GTqPSUBJ6gUXQ/exec";
+/* ===============================
+   設定
+=============================== */
+const WEB_URL = "https://script.google.com/macros/s/AKfycbwClqNVsmHTs2bMboKGldPgvOfw_bmgY-pHyiRbSu9TaboK0n3xd4rgZitJdK2ltkpUdQ/exec";
+const POST_URL = WEB_URL;
+const GET_URL  = WEB_URL;
 const MIC_SEC = 30;
 
+/* ===============================
+   変数
+=============================== */
 let lastRow = -1;
 let lastSheetText = "";
 let recognition = null;
 let micTimer = null;
 
 const t = document.getElementById("text");
-const keepalive = document.getElementById("keepalive");
 
+/* ===============================
+   スタートボタン
+=============================== */
 document.getElementById("start").onclick = () => {
   document.getElementById("start").style.display = "none";
   t.style.display = "flex";
@@ -64,15 +71,22 @@ document.getElementById("start").onclick = () => {
   pollSheet();
 };
 
+/* ===============================
+   文字表示
+=============================== */
 function showText(msg) {
   if (!msg) return;
   t.innerText = msg;
+
   if (msg.length <= 20) t.style.fontSize = "12vw";
   else if (msg.length <= 40) t.style.fontSize = "10vw";
   else if (msg.length <= 80) t.style.fontSize = "8vw";
   else t.style.fontSize = "6vw";
 }
 
+/* ===============================
+   シート監視（GPT返信取得）
+=============================== */
 async function pollSheet() {
   try {
     const res = await fetch(GET_URL + "?t=" + Date.now());
@@ -83,28 +97,46 @@ async function pollSheet() {
       lastSheetText = data.text;
       if (!micTimer) showText(lastSheetText);
     }
-  } catch (e) {}
+  } catch (e) {
+    console.log("GET error:", e);
+  }
 
   setTimeout(pollSheet, 500);
 }
 
+/* ===============================
+   シートへ送信（母の声）
+=============================== */
 function sendToSheet(text) {
   fetch(POST_URL, {
     method: "POST",
-    mode: "no-cors",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text })
-  });
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.reply) {
+      showText(text + "\n(ｹﾝﾀ) " + data.reply);
+    }
+  })
+  .catch(err => console.log("POST error:", err));
 }
 
+/* ===============================
+   マイク開始
+=============================== */
 function startMic() {
+
   const S = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!S) return;
+  if (!S) {
+    alert("このブラウザは音声認識に対応していません");
+    return;
+  }
 
   recognition = new S();
   recognition.lang = "ja-JP";
   recognition.continuous = true;
-  recognition.interimResults = true; // ← 追加！
+  recognition.interimResults = true;
 
   recognition.onresult = (e) => {
     const last = e.results.length - 1;
@@ -122,13 +154,9 @@ function startMic() {
   };
 
   recognition.onend = () => {
-    setTimeout(() => recognition.start(), 500); // 自動再開も少し遅延
+    setTimeout(() => recognition.start(), 500);
   };
 
-  keepalive.volume = 0.001;
-  keepalive.play().catch(() => {});
-  
-  // 遅延してから start（これが一番重要）
   setTimeout(() => recognition.start(), 500);
 }
 </script>
