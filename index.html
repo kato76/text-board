@@ -1,164 +1,50 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>見守り文字ボード</title>
-
-<style>
-body {
-  margin: 0;
-  background: black;
-  color: white;
-  font-family: sans-serif;
-}
-#start {
-  width: 100vw;
-  height: 100vh;
-  font-size: 8vw;
-  background: black;
-  color: white;
-  border: none;
-}
-#text {
-  display: none;
-  width: 100vw;
-  height: 100vh;
-  text-align: center;
-  padding: 5vw;
-  line-height: 1.2;
-  white-space: pre-wrap;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 6vw;
-}
-</style>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      margin:0;
+      background:black;
+      color:white;
+      font-family:sans-serif;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      height:100vh;
+      font-size:8vw;
+      text-align:center;
+      white-space:pre-wrap;
+    }
+  </style>
 </head>
-
 <body>
 
-<button id="start">画面をタップしてください</button>
-<div id="text"></div>
+<div id="text">待機中</div>
 
 <script>
-/* ===============================
-   設定
-=============================== */
-const WEB_URL = "https://script.google.com/macros/s/AKfycbzPYt7_KUHllivxsLtPVF-WoRRyIr2ERdD6AQW2GQ8fyhazWVdbxGNCzqyUUmgGERR7Hw/exec";
-const POST_URL = WEB_URL;
-const GET_URL  = WEB_URL;
-const MIC_SEC = 30;
 
-/* ===============================
-   変数
-=============================== */
 let lastRow = -1;
-let lastSheetText = "";
-let recognition = null;
-let micTimer = null;
-
 const t = document.getElementById("text");
 
-/* ===============================
-   スタートボタン
-=============================== */
-document.getElementById("start").onclick = () => {
-  document.getElementById("start").style.display = "none";
-  t.style.display = "flex";
-  t.innerText = "待機中";
-  startMic();
-  pollSheet();
-};
-
-/* ===============================
-   文字表示
-=============================== */
-function showText(msg) {
-  if (!msg) return;
+function showText(msg){
+  if(!msg) return;
   t.innerText = msg;
-
-  if (msg.length <= 20) t.style.fontSize = "12vw";
-  else if (msg.length <= 40) t.style.fontSize = "10vw";
-  else if (msg.length <= 80) t.style.fontSize = "8vw";
-  else t.style.fontSize = "6vw";
 }
 
-/* ===============================
-   シート監視（GPT返信取得）
-=============================== */
-async function pollSheet() {
-  try {
-    const res = await fetch(GET_URL + "?t=" + Date.now());
-    const data = await res.json();
-
-    if (data.row > lastRow) {
-      lastRow = data.row;
-      lastSheetText = data.text;
-      if (!micTimer) showText(lastSheetText);
-    }
-  } catch (e) {
-    console.log("GET error:", e);
-  }
-
-  setTimeout(pollSheet, 500);
+function poll(){
+  google.script.run
+    .withSuccessHandler(data=>{
+      if(data.row > lastRow){
+        lastRow = data.row;
+        showText(data.text);
+      }
+    })
+    .getLatest();
 }
 
-/* ===============================
-   シートへ送信（母の声）
-=============================== */
-function sendToSheet(text) {
-  fetch(POST_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text })
-  })
-  .then(res => res.json())
-  .then(data => {
-    if (data.reply) {
-      showText(text + "\n(ｹﾝﾀ) " + data.reply);
-    }
-  })
-  .catch(err => console.log("POST error:", err));
-}
+setInterval(poll, 1000);
 
-/* ===============================
-   マイク開始
-=============================== */
-function startMic() {
-
-  const S = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!S) {
-    alert("このブラウザは音声認識に対応していません");
-    return;
-  }
-
-  recognition = new S();
-  recognition.lang = "ja-JP";
-  recognition.continuous = true;
-  recognition.interimResults = true;
-
-  recognition.onresult = (e) => {
-    const last = e.results.length - 1;
-    const text = e.results[last][0].transcript.trim();
-    if (!text) return;
-
-    showText(text);
-    sendToSheet(text);
-
-    if (micTimer) clearTimeout(micTimer);
-    micTimer = setTimeout(() => {
-      micTimer = null;
-      if (lastSheetText) showText(lastSheetText);
-    }, MIC_SEC * 1000);
-  };
-
-  recognition.onend = () => {
-    setTimeout(() => recognition.start(), 500);
-  };
-
-  setTimeout(() => recognition.start(), 500);
-}
 </script>
 
 </body>
