@@ -40,8 +40,8 @@ body{
 <div id="text"></div>
 
 <script>
-const POST_URL = "https://script.google.com/macros/s/AKfycbx0bAxQf6PXr-UeyfqxoBPXGP6Pb_NIq1i6yCdMVle1RsX9fpmkqc3RxELOQ0C4sy-J/exec";
-const GET_URL  = "https://script.google.com/macros/s/AKfycbx0bAxQf6PXr-UeyfqxoBPXGP6Pb_NIq1i6yCdMVle1RsX9fpmkqc3RxELOQ0C4sy-J/exec";
+const POST_URL = "https://script.google.com/macros/s/AKfycbwTDREKD4-sJAY-TmBdmnPSXtQBjNgaKKv_RI-APXlPxHseCNED9NkEPHOv5RipFDlH/exec";
+const GET_URL  = "https://script.google.com/macros/s/AKfycbwTDREKD4-sJAY-TmBdmnPSXtQBjNgaKKv_RI-APXlPxHseCNED9NkEPHOv5RipFDlH/exec";
 
 const IDLE_MESSAGE = "何かしゃべってください。\n2回くらい";
 const IDLE_MS = 10 * 60 * 1000;
@@ -53,9 +53,7 @@ let lastSentText = "";
 let lastSentTime = 0;
 
 let currentMode = "idle";
-let currentWaText = "";
-let currentTabletText = "";
-let currentDisplayRow = 1;   // 今画面に対応する行
+let currentDisplayRow = 1;
 let idleTimer = null;
 
 const startBtn = document.getElementById("start");
@@ -91,33 +89,28 @@ async function sendDisplayUpdate(text, row){
 
 function showIdleMessage(){
   currentMode = "idle";
-  currentTabletText = "";
   showText(IDLE_MESSAGE);
 }
 
 async function showWaMessage(msg, row){
   currentMode = "wa";
-  currentWaText = msg || "";
   currentDisplayRow = row || 1;
-  showText(currentWaText);
-  await sendDisplayUpdate(currentWaText, currentDisplayRow);
+  showText(msg || "");
+  await sendDisplayUpdate(msg || "", currentDisplayRow);
 }
 
 async function showTabletMessage(msg, row){
   currentMode = "tablet";
-  currentTabletText = msg || "";
   currentDisplayRow = row || 1;
-  showText(currentTabletText);
-  await sendDisplayUpdate(currentTabletText, currentDisplayRow);
+  showText(msg || "");
+  await sendDisplayUpdate(msg || "", currentDisplayRow);
 }
 
 function resetIdleTimer(){
   if(idleTimer){
     clearTimeout(idleTimer);
   }
-
   idleTimer = setTimeout(() => {
-    currentTabletText = "";
     showIdleMessage();
   }, IDLE_MS);
 }
@@ -129,7 +122,6 @@ async function pollSheet(){
 
     if(data.id !== undefined && data.id !== lastId){
       lastId = data.id;
-
       if(data.text){
         await showWaMessage(data.text, data.row || 1);
       }
@@ -152,10 +144,10 @@ async function sendSpeechToSheet(text){
     });
 
     const data = await res.json();
-    return data.row || currentDisplayRow || 1;
+    return data.row || 1;
   }catch(err){
     console.log("POST error:", err);
-    return currentDisplayRow || 1;
+    return 1;
   }
 }
 
@@ -184,13 +176,11 @@ function startMic(){
       }
     }
 
-    // 途中表示は、今の会話対象行に仮表示
     if(interimText){
       showText(interimText);
       resetIdleTimer();
     }
 
-    // 確定したら、先にシートへ送り、返ってきた正しい行番号で表示更新
     if(finalText){
       const now = Date.now();
       resetIdleTimer();
@@ -202,7 +192,6 @@ function startMic(){
         const row = await sendSpeechToSheet(finalText);
         await showTabletMessage(finalText, row);
       } else {
-        // 重複抑制で送らない場合でも、現在行にだけ表示
         showText(finalText);
       }
     }
