@@ -55,8 +55,7 @@ let lastSentTime = 0;
 let currentMode = "idle";
 let currentWaText = "";
 let currentTabletText = "";
-let currentDisplayRow = 1;
-let lastSpeechRow = 1;
+let currentDisplayRow = 1;   // 今画面に対応する行
 let idleTimer = null;
 
 const startBtn = document.getElementById("start");
@@ -96,20 +95,20 @@ function showIdleMessage(){
   showText(IDLE_MESSAGE);
 }
 
-function showWaMessage(msg, row){
+async function showWaMessage(msg, row){
   currentMode = "wa";
   currentWaText = msg || "";
   currentDisplayRow = row || 1;
   showText(currentWaText);
-  sendDisplayUpdate(currentWaText, currentDisplayRow);
+  await sendDisplayUpdate(currentWaText, currentDisplayRow);
 }
 
-function showTabletMessage(msg, row){
+async function showTabletMessage(msg, row){
   currentMode = "tablet";
   currentTabletText = msg || "";
-  currentDisplayRow = row || lastSpeechRow || 1;
+  currentDisplayRow = row || 1;
   showText(currentTabletText);
-  sendDisplayUpdate(currentTabletText, currentDisplayRow);
+  await sendDisplayUpdate(currentTabletText, currentDisplayRow);
 }
 
 function resetIdleTimer(){
@@ -132,7 +131,7 @@ async function pollSheet(){
       lastId = data.id;
 
       if(data.text){
-        showWaMessage(data.text, data.row || 1);
+        await showWaMessage(data.text, data.row || 1);
       }
     }
   }catch(err){
@@ -142,7 +141,7 @@ async function pollSheet(){
   setTimeout(pollSheet, 500);
 }
 
-async function sendToSheet(text){
+async function sendSpeechToSheet(text){
   try{
     const res = await fetch(POST_URL, {
       method: "POST",
@@ -153,11 +152,10 @@ async function sendToSheet(text){
     });
 
     const data = await res.json();
-    if(data.row){
-      lastSpeechRow = data.row;
-    }
+    return data.row || currentDisplayRow || 1;
   }catch(err){
     console.log("POST error:", err);
+    return currentDisplayRow || 1;
   }
 }
 
@@ -173,7 +171,7 @@ function startMic(){
   recognition.continuous = true;
   recognition.interimResults = true;
 
-  recognition.onresult = e => {
+  recognition.onresult = async e => {
     let interimText = "";
     let finalText = "";
 
@@ -186,20 +184,26 @@ function startMic(){
       }
     }
 
+    // 途中表示は、今の会話対象行に仮表示
     if(interimText){
-      showTabletMessage(interimText, lastSpeechRow || currentDisplayRow || 1);
+      showText(interimText);
       resetIdleTimer();
     }
 
+    // 確定したら、先にシートへ送り、返ってきた正しい行番号で表示更新
     if(finalText){
       const now = Date.now();
-      showTabletMessage(finalText, lastSpeechRow || currentDisplayRow || 1);
       resetIdleTimer();
 
       if(finalText !== lastSentText || (now - lastSentTime) >= 3000){
         lastSentText = finalText;
         lastSentTime = now;
-        sendToSheet(finalText);
+
+        const row = await sendSpeechToSheet(finalText);
+        await showTabletMessage(finalText, row);
+      } else {
+        // 重複抑制で送らない場合でも、現在行にだけ表示
+        showText(finalText);
       }
     }
   };
