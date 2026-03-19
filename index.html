@@ -5,11 +5,33 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>見守り文字ボード</title>
 <style>
-body{margin:0;background:black;color:white;font-family:sans-serif;}
-#start{width:100vw;height:100vh;font-size:8vw;background:black;color:white;border:none;}
-#text{display:none;width:100vw;height:100vh;font-size:6vw;text-align:center;
-padding:5vw;line-height:1.2;white-space:pre-wrap;
-display:flex;align-items:center;justify-content:center;}
+body{
+  margin:0;
+  background:black;
+  color:white;
+  font-family:sans-serif;
+}
+#start{
+  width:100vw;
+  height:100vh;
+  font-size:8vw;
+  background:black;
+  color:white;
+  border:none;
+}
+#text{
+  display:none;
+  width:100vw;
+  height:100vh;
+  font-size:6vw;
+  text-align:center;
+  padding:5vw;
+  line-height:1.2;
+  white-space:pre-wrap;
+  box-sizing:border-box;
+  align-items:center;
+  justify-content:center;
+}
 </style>
 </head>
 <body>
@@ -18,18 +40,20 @@ display:flex;align-items:center;justify-content:center;}
 <div id="text"></div>
 
 <script>
-
 const POST_URL = "https://script.google.com/macros/s/AKfycbydEP83WxaTh9MlviRld1j5Q0-mwj3VFvWjaj4opZ4edCO1zxPxgkgs-gsZXHiSJbgm/exec";
 const GET_URL  = "https://script.google.com/macros/s/AKfycbydEP83WxaTh9MlviRld1j5Q0-mwj3VFvWjaj4opZ4edCO1zxPxgkgs-gsZXHiSJbgm/exec";
 
-let lastRow = -1;
+let lastId = "";
 let recognition = null;
 let micPaused = false;
+let lastSentText = "";
+let lastSentTime = 0;
 
+const startBtn = document.getElementById("start");
 const t = document.getElementById("text");
 
-document.getElementById("start").onclick = () => {
-  document.getElementById("start").style.display = "none";
+startBtn.onclick = () => {
+  startBtn.style.display = "none";
   t.style.display = "flex";
   t.innerText = "待機中";
   startMic();
@@ -37,57 +61,89 @@ document.getElementById("start").onclick = () => {
 };
 
 function showText(msg){
-  if(!msg) return;
-  t.innerText = msg;
+  t.innerText = msg || "";
 }
 
-function pollSheet(){
-  fetch(GET_URL + "?t=" + Date.now())
-    .then(r=>r.json())
-    .then(data=>{
-      if(data.row > lastRow){
-        lastRow = data.row;
-        showText(data.text);
-      }
-    })
-    .catch(()=>{});
-  setTimeout(pollSheet,500);
+async function pollSheet(){
+  try{
+    const res = await fetch(GET_URL + "?t=" + Date.now());
+    const data = await res.json();
+
+    if(data.id !== undefined && data.id !== lastId){
+      lastId = data.id;
+      showText(data.text || "");
+    }
+  }catch(err){
+    console.log("GET error:", err);
+  }
+
+  setTimeout(pollSheet, 1000);
 }
 
-function sendToSheet(text){
-  fetch(POST_URL,{
-    method:"POST",
-    mode:"no-cors",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      text:text,
-      type:"tablet"   // ← タブレット
-    })
-  });
+async function sendToSheet(text){
+  try{
+    await fetch(POST_URL, {
+      method: "POST",
+      headers: {"Content-Type":"text/plain;charset=utf-8"},
+      body: JSON.stringify({
+        text: text,
+        type: "tablet"
+      })
+    });
+  }catch(err){
+    console.log("POST error:", err);
+  }
 }
 
 function startMic(){
   const S = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!S) return;
+  if(!S){
+    showText("この端末は音声認識に対応していません");
+    return;
+  }
 
   recognition = new S();
-  recognition.lang="ja-JP";
-  recognition.continuous=true;
+  recognition.lang = "ja-JP";
+  recognition.continuous = true;
+  recognition.interimResults = false;
 
-  recognition.onresult = e=>{
-    const text = e.results[e.results.length-1][0].transcript.trim();
+  recognition.onresult = e => {
+    const result = e.results[e.results.length - 1];
+    if(!result.isFinal) return;
+
+    const text = result[0].transcript.trim();
     if(!text) return;
+
+    const now = Date.now();
+
+    // 同じ内容の連投を少し抑える
+    if(text === lastSentText && (now - lastSentTime) < 3000){
+      return;
+    }
+
+    lastSentText = text;
+    lastSentTime = now;
+
     showText(text);
     sendToSheet(text);
   };
 
-  recognition.onend=()=>{
-    if(!micPaused) setTimeout(startMic,500);
+  recognition.onerror = e => {
+    console.log("Speech error:", e);
   };
 
-  recognition.start();
-}
+  recognition.onend = () => {
+    if(!micPaused){
+      setTimeout(startMic, 500);
+    }
+  };
 
+  try{
+    recognition.start();
+  }catch(err){
+    console.log("Recognition start error:", err);
+  }
+}
 </script>
 </body>
 </html>
