@@ -40,11 +40,11 @@ body{
 <div id="text"></div>
 
 <script>
-const POST_URL = "https://script.google.com/macros/s/AKfycbxx-MxOyijivaoy2DPi4d1vLTxAHRfdMf8L6d0cDfs7T2ffapxUCiju7mFr1HKmwq9l/exec";
-const GET_URL  = "https://script.google.com/macros/s/AKfycbxx-MxOyijivaoy2DPi4d1vLTxAHRfdMf8L6d0cDfs7T2ffapxUCiju7mFr1HKmwq9l/exec";
+const POST_URL = "https://script.google.com/macros/s/AKfycbx0bAxQf6PXr-UeyfqxoBPXGP6Pb_NIq1i6yCdMVle1RsX9fpmkqc3RxELOQ0C4sy-J/exec";
+const GET_URL  = "https://script.google.com/macros/s/AKfycbx0bAxQf6PXr-UeyfqxoBPXGP6Pb_NIq1i6yCdMVle1RsX9fpmkqc3RxELOQ0C4sy-J/exec";
 
 const IDLE_MESSAGE = "何かしゃべってください。\n2回くらい";
-const IDLE_MS = 10 * 60 * 1000; // 10分
+const IDLE_MS = 10 * 60 * 1000;
 
 let lastId = "";
 let recognition = null;
@@ -52,10 +52,11 @@ let micPaused = false;
 let lastSentText = "";
 let lastSentTime = 0;
 
-// 表示状態
-let currentMode = "idle"; // idle / wa / tablet
+let currentMode = "idle";
 let currentWaText = "";
 let currentTabletText = "";
+let currentDisplayRow = 1;
+let lastSpeechRow = 1;
 let idleTimer = null;
 
 const startBtn = document.getElementById("start");
@@ -73,22 +74,42 @@ function showText(msg){
   t.innerText = msg || "";
 }
 
+async function sendDisplayUpdate(text, row){
+  try{
+    await fetch(POST_URL, {
+      method: "POST",
+      headers: {"Content-Type":"text/plain;charset=utf-8"},
+      body: JSON.stringify({
+        action: "display_update",
+        text: text || "",
+        row: row || 1
+      })
+    });
+  }catch(err){
+    console.log("DISPLAY POST error:", err);
+  }
+}
+
 function showIdleMessage(){
   currentMode = "idle";
   currentTabletText = "";
   showText(IDLE_MESSAGE);
 }
 
-function showWaMessage(msg){
+function showWaMessage(msg, row){
   currentMode = "wa";
   currentWaText = msg || "";
+  currentDisplayRow = row || 1;
   showText(currentWaText);
+  sendDisplayUpdate(currentWaText, currentDisplayRow);
 }
 
-function showTabletMessage(msg){
+function showTabletMessage(msg, row){
   currentMode = "tablet";
   currentTabletText = msg || "";
+  currentDisplayRow = row || lastSpeechRow || 1;
   showText(currentTabletText);
+  sendDisplayUpdate(currentTabletText, currentDisplayRow);
 }
 
 function resetIdleTimer(){
@@ -97,7 +118,6 @@ function resetIdleTimer(){
   }
 
   idleTimer = setTimeout(() => {
-    // 10分話していなければ、タブレット発話は消して案内文を表示
     currentTabletText = "";
     showIdleMessage();
   }, IDLE_MS);
@@ -108,13 +128,11 @@ async function pollSheet(){
     const res = await fetch(GET_URL + "?t=" + Date.now());
     const data = await res.json();
 
-    // （和）の新しい発言が来たときだけ表示更新
     if(data.id !== undefined && data.id !== lastId){
       lastId = data.id;
 
       if(data.text){
-        // （和）の発言は、タブレットが何かしゃべるまで残す
-        showWaMessage(data.text);
+        showWaMessage(data.text, data.row || 1);
       }
     }
   }catch(err){
@@ -126,13 +144,18 @@ async function pollSheet(){
 
 async function sendToSheet(text){
   try{
-    await fetch(POST_URL, {
+    const res = await fetch(POST_URL, {
       method: "POST",
       headers: {"Content-Type":"text/plain;charset=utf-8"},
       body: JSON.stringify({
         text: text
       })
     });
+
+    const data = await res.json();
+    if(data.row){
+      lastSpeechRow = data.row;
+    }
   }catch(err){
     console.log("POST error:", err);
   }
@@ -163,16 +186,14 @@ function startMic(){
       }
     }
 
-    // 話している途中から表示
     if(interimText){
-      showTabletMessage(interimText);
+      showTabletMessage(interimText, lastSpeechRow || currentDisplayRow || 1);
       resetIdleTimer();
     }
 
-    // 確定したら表示してシートに送信
     if(finalText){
       const now = Date.now();
-      showTabletMessage(finalText);
+      showTabletMessage(finalText, lastSpeechRow || currentDisplayRow || 1);
       resetIdleTimer();
 
       if(finalText !== lastSentText || (now - lastSentTime) >= 3000){
@@ -200,7 +221,6 @@ function startMic(){
   }
 }
 
-// 初期の10分タイマー
 resetIdleTimer();
 </script>
 </body>
