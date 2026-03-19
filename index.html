@@ -43,11 +43,20 @@ body{
 const POST_URL = "https://script.google.com/macros/s/AKfycbxx-MxOyijivaoy2DPi4d1vLTxAHRfdMf8L6d0cDfs7T2ffapxUCiju7mFr1HKmwq9l/exec";
 const GET_URL  = "https://script.google.com/macros/s/AKfycbxx-MxOyijivaoy2DPi4d1vLTxAHRfdMf8L6d0cDfs7T2ffapxUCiju7mFr1HKmwq9l/exec";
 
+const IDLE_MESSAGE = "何かしゃべってください。\n2回くらい";
+const IDLE_MS = 10 * 60 * 1000; // 10分
+
 let lastId = "";
 let recognition = null;
 let micPaused = false;
 let lastSentText = "";
 let lastSentTime = 0;
+
+// 表示状態
+let currentMode = "idle"; // idle / wa / tablet
+let currentWaText = "";
+let currentTabletText = "";
+let idleTimer = null;
 
 const startBtn = document.getElementById("start");
 const t = document.getElementById("text");
@@ -55,7 +64,7 @@ const t = document.getElementById("text");
 startBtn.onclick = () => {
   startBtn.style.display = "none";
   t.style.display = "flex";
-  t.innerText = "待機中";
+  showIdleMessage();
   startMic();
   pollSheet();
 };
@@ -64,20 +73,55 @@ function showText(msg){
   t.innerText = msg || "";
 }
 
+function showIdleMessage(){
+  currentMode = "idle";
+  currentTabletText = "";
+  showText(IDLE_MESSAGE);
+}
+
+function showWaMessage(msg){
+  currentMode = "wa";
+  currentWaText = msg || "";
+  showText(currentWaText);
+}
+
+function showTabletMessage(msg){
+  currentMode = "tablet";
+  currentTabletText = msg || "";
+  showText(currentTabletText);
+}
+
+function resetIdleTimer(){
+  if(idleTimer){
+    clearTimeout(idleTimer);
+  }
+
+  idleTimer = setTimeout(() => {
+    // 10分話していなければ、タブレット発話は消して案内文を表示
+    currentTabletText = "";
+    showIdleMessage();
+  }, IDLE_MS);
+}
+
 async function pollSheet(){
   try{
     const res = await fetch(GET_URL + "?t=" + Date.now());
     const data = await res.json();
 
+    // （和）の新しい発言が来たときだけ表示更新
     if(data.id !== undefined && data.id !== lastId){
       lastId = data.id;
-      showText(data.text || "");
+
+      if(data.text){
+        // （和）の発言は、タブレットが何かしゃべるまで残す
+        showWaMessage(data.text);
+      }
     }
   }catch(err){
     console.log("GET error:", err);
   }
 
-  setTimeout(pollSheet, 1000);
+  setTimeout(pollSheet, 500);
 }
 
 async function sendToSheet(text){
@@ -104,25 +148,39 @@ function startMic(){
   recognition = new S();
   recognition.lang = "ja-JP";
   recognition.continuous = true;
-  recognition.interimResults = false;
+  recognition.interimResults = true;
 
   recognition.onresult = e => {
-    const result = e.results[e.results.length - 1];
-    if(!result.isFinal) return;
+    let interimText = "";
+    let finalText = "";
 
-    const text = result[0].transcript.trim();
-    if(!text) return;
-
-    const now = Date.now();
-    if(text === lastSentText && (now - lastSentTime) < 3000){
-      return;
+    for(let i = e.resultIndex; i < e.results.length; i++){
+      const txt = e.results[i][0].transcript.trim();
+      if(e.results[i].isFinal){
+        finalText += txt;
+      }else{
+        interimText += txt;
+      }
     }
 
-    lastSentText = text;
-    lastSentTime = now;
+    // 話している途中から表示
+    if(interimText){
+      showTabletMessage(interimText);
+      resetIdleTimer();
+    }
 
-    showText(text);
-    sendToSheet(text);
+    // 確定したら表示してシートに送信
+    if(finalText){
+      const now = Date.now();
+      showTabletMessage(finalText);
+      resetIdleTimer();
+
+      if(finalText !== lastSentText || (now - lastSentTime) >= 3000){
+        lastSentText = finalText;
+        lastSentTime = now;
+        sendToSheet(finalText);
+      }
+    }
   };
 
   recognition.onerror = e => {
@@ -131,7 +189,7 @@ function startMic(){
 
   recognition.onend = () => {
     if(!micPaused){
-      setTimeout(startMic, 500);
+      setTimeout(startMic, 200);
     }
   };
 
@@ -141,6 +199,9 @@ function startMic(){
     console.log("Recognition start error:", err);
   }
 }
+
+// 初期の10分タイマー
+resetIdleTimer();
 </script>
 </body>
 </html>
