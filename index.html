@@ -40,8 +40,8 @@ body{
 <div id="text"></div>
 
 <script>
-const POST_URL = "https://script.google.com/macros/s/AKfycbxOjPTUQi5NBQzZuZUJjCqLMD1SWwnpBaGG1XmuZ9SlyNm0QE1qerK57S3mx1Fzz02X/exec";
-const GET_URL  = "https://script.google.com/macros/s/AKfycbxOjPTUQi5NBQzZuZUJjCqLMD1SWwnpBaGG1XmuZ9SlyNm0QE1qerK57S3mx1Fzz02X/exec";
+const POST_URL = "https://script.google.com/macros/s/AKfycbxb2Gd43GSSgW4F07qfLU9irXm5FhunZxW6G_K4M_UartdBeM_SP0JojyPGMPhfKLY/exec";
+const GET_URL  = "https://script.google.com/macros/s/AKfycbxb2Gd43GSSgW4F07qfLU9irXm5FhunZxW6G_K4M_UartdBeM_SP0JojyPGMPhfKLY/exec";
 
 let lastId = "";
 let recognition = null;
@@ -86,8 +86,7 @@ async function sendToSheet(text){
       method: "POST",
       headers: {"Content-Type":"text/plain;charset=utf-8"},
       body: JSON.stringify({
-        text: text,
-        type: "tablet"
+        text: text
       })
     });
   }catch(err){
@@ -115,8 +114,6 @@ function startMic(){
     if(!text) return;
 
     const now = Date.now();
-
-    // 同じ内容の連投を少し抑える
     if(text === lastSentText && (now - lastSentTime) < 3000){
       return;
     }
