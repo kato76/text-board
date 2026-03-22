@@ -2,159 +2,291 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>見守り文字ボード</title>
 <style>
-body{
-  margin:0;
-  background:black;
-  color:white;
-  font-family:sans-serif;
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  color: #fff;
+  font-family: sans-serif;
+  overflow: hidden;
 }
-#start{
-  width:100vw;
-  height:100vh;
-  font-size:8vw;
-  background:black;
-  color:white;
-  border:none;
+
+#start {
+  width: 100vw;
+  height: 100vh;
+  font-size: 8vw;
+  background: #000;
+  color: #fff;
+  border: none;
 }
-#text{
-  display:none;
-  width:100vw;
-  height:100vh;
-  font-size:12vw;
-  text-align:center;
-  padding:5vw;
-  line-height:1.2;
-  white-space:pre-wrap;
-  box-sizing:border-box;
-  align-items:center;
-  justify-content:center;
+
+#app {
+  display: none;
+  width: 100vw;
+  height: 100vh;
+  box-sizing: border-box;
+  padding: 2vh 3vw;
+  display: flex;
+  flex-direction: column;
+  gap: 2vh;
+}
+
+.panel {
+  border: 2px solid #666;
+  border-radius: 16px;
+  padding: 2vh 2vw;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.label {
+  font-size: 3.2vw;
+  color: #bbb;
+  margin-bottom: 1vh;
+}
+
+#familyBox {
+  flex: 0 0 23vh;
+  background: #111;
+  border-color: #888;
+}
+
+#familyText {
+  font-size: 5.4vw;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+#liveBox {
+  flex: 0 0 38vh;
+  background: #001018;
+  border-color: #4da3ff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+#liveText {
+  font-size: 9vw;
+  line-height: 1.2;
+  text-align: center;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+}
+
+#historyBox {
+  flex: 1 1 auto;
+  background: #111;
+}
+
+#historyList {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 4.2vw;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+#status {
+  position: absolute;
+  right: 2vw;
+  bottom: 1vh;
+  font-size: 2.8vw;
+  color: #888;
 }
 </style>
 </head>
 <body>
 
 <button id="start">画面をタップしてください</button>
-<div id="text"></div>
+
+<div id="app">
+  <div id="familyBox" class="panel">
+    <div class="label">ご家族から</div>
+    <div id="familyText">メッセージはありません</div>
+  </div>
+
+  <div id="liveBox" class="panel">
+    <div class="label">いまのことば</div>
+    <div id="liveText">何かしゃべってください。<br>2回くらい</div>
+  </div>
+
+  <div id="historyBox" class="panel">
+    <div class="label">さっきのことば</div>
+    <ul id="historyList"></ul>
+  </div>
+</div>
+
+<div id="status"></div>
 
 <script>
 const POST_URL = "https://script.google.com/macros/s/AKfycbwTDREKD4-sJAY-TmBdmnPSXtQBjNgaKKv_RI-APXlPxHseCNED9NkEPHOv5RipFDlH/exec";
 const GET_URL  = "https://script.google.com/macros/s/AKfycbwTDREKD4-sJAY-TmBdmnPSXtQBjNgaKKv_RI-APXlPxHseCNED9NkEPHOv5RipFDlH/exec";
 
 const IDLE_MESSAGE = "何かしゃべってください。\n2回くらい";
-const IDLE_MS = 10 * 60 * 1000;
+const IDLE_MS = 60 * 1000;
+const HISTORY_MAX = 4;
+const SEND_COOLDOWN_MS = 2500;
 
-let lastId = "";
 let recognition = null;
 let micPaused = false;
+
+let lastServerId = "";
 let lastSentText = "";
 let lastSentTime = 0;
-
-let currentMode = "idle";
-let currentDisplayRow = 1;
 let idleTimer = null;
 
 const startBtn = document.getElementById("start");
-const t = document.getElementById("text");
+const app = document.getElementById("app");
+const familyTextEl = document.getElementById("familyText");
+const liveTextEl = document.getElementById("liveText");
+const historyListEl = document.getElementById("historyList");
+const statusEl = document.getElementById("status");
+
+const historyItems = [];
 
 startBtn.onclick = () => {
   startBtn.style.display = "none";
-  t.style.display = "flex";
-  showIdleMessage();
+  app.style.display = "flex";
+  showLiveText(IDLE_MESSAGE);
   startMic();
   pollSheet();
 };
 
-function showText(msg){
-  t.innerText = msg || "";
+function normalizeText(text) {
+  return (text || "")
+    .replace(/\s+/g, " ")
+    .replace(/。/g, "。\n")
+    .replace(/！/g, "！\n")
+    .replace(/？/g, "？\n")
+    .replace(/\n+/g, "\n")
+    .trim();
 }
 
-async function sendDisplayUpdate(text, row){
-  try{
-    await fetch(POST_URL, {
-      method: "POST",
-      headers: {"Content-Type":"text/plain;charset=utf-8"},
-      body: JSON.stringify({
-        action: "display_update",
-        text: text || "",
-        row: row || 1
-      })
-    });
-  }catch(err){
-    console.log("DISPLAY POST error:", err);
+function shortenText(text, max = 28) {
+  const t = (text || "").replace(/\n/g, " ").trim();
+  return t.length > max ? t.slice(0, max) + "…" : t;
+}
+
+function splitIntoChunks(text, max = 22) {
+  const raw = normalizeText(text).replace(/\n/g, " ");
+  if (!raw) return [];
+
+  const parts = raw.split(/(?<=[。！？])/).map(s => s.trim()).filter(Boolean);
+  const chunks = [];
+
+  for (const part of parts) {
+    if (part.length <= max) {
+      chunks.push(part);
+    } else {
+      for (let i = 0; i < part.length; i += max) {
+        chunks.push(part.slice(i, i + max));
+      }
+    }
   }
+  return chunks;
 }
 
-function showIdleMessage(){
-  currentMode = "idle";
-  showText(IDLE_MESSAGE);
+function showStatus(msg) {
+  statusEl.textContent = msg || "";
 }
 
-async function showWaMessage(msg, row){
-  currentMode = "wa";
-  currentDisplayRow = row || 1;
-  showText(msg || "");
-  await sendDisplayUpdate(msg || "", currentDisplayRow);
+function showLiveText(msg) {
+  liveTextEl.innerText = msg || "";
 }
 
-async function showTabletMessage(msg, row){
-  currentMode = "tablet";
-  currentDisplayRow = row || 1;
-  showText(msg || "");
-  await sendDisplayUpdate(msg || "", currentDisplayRow);
+function showFamilyText(msg) {
+  familyTextEl.innerText = msg || "メッセージはありません";
 }
 
-function resetIdleTimer(){
-  if(idleTimer){
-    clearTimeout(idleTimer);
+function addHistory(text) {
+  const one = shortenText(text, 24);
+  if (!one) return;
+
+  if (historyItems[0] === one) return;
+
+  historyItems.unshift(one);
+  if (historyItems.length > HISTORY_MAX) {
+    historyItems.length = HISTORY_MAX;
   }
+
+  historyListEl.innerHTML = "";
+  historyItems.forEach(item => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    historyListEl.appendChild(li);
+  });
+}
+
+function resetIdleTimer() {
+  if (idleTimer) clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    showIdleMessage();
+    showLiveText(IDLE_MESSAGE);
   }, IDLE_MS);
 }
 
-async function pollSheet(){
-  try{
-    const res = await fetch(GET_URL + "?t=" + Date.now());
-    const data = await res.json();
-
-    if(data.id !== undefined && data.id !== lastId){
-      lastId = data.id;
-      if(data.text){
-        await showWaMessage(data.text, data.row || 1);
-      }
-    }
-  }catch(err){
-    console.log("GET error:", err);
-  }
-
-  setTimeout(pollSheet, 500);
-}
-
-async function sendSpeechToSheet(text){
-  try{
+async function sendSpeechToSheet(text) {
+  try {
     const res = await fetch(POST_URL, {
       method: "POST",
-      headers: {"Content-Type":"text/plain;charset=utf-8"},
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({
+        action: "speech",
         text: text
       })
     });
-
-    const data = await res.json();
-    return data.row || 1;
-  }catch(err){
+    return await res.json();
+  } catch (err) {
     console.log("POST error:", err);
-    return 1;
+    return {};
   }
 }
 
-function startMic(){
+async function pollSheet() {
+  try {
+    const res = await fetch(GET_URL + "?t=" + Date.now());
+    const data = await res.json();
+
+    showStatus("接続中");
+
+    if (data.id !== undefined && data.id !== lastServerId) {
+      lastServerId = data.id;
+
+      if (data.familyMessage !== undefined) {
+        showFamilyText(data.familyMessage);
+      } else if (data.text && data.source === "family") {
+        showFamilyText(data.text);
+      }
+
+      if (data.tabletMessage && data.source === "tablet") {
+        showLiveText(normalizeText(data.tabletMessage));
+        addHistory(data.tabletMessage);
+        resetIdleTimer();
+      }
+    }
+  } catch (err) {
+    console.log("GET error:", err);
+    showStatus("通信待ち");
+  }
+
+  setTimeout(pollSheet, 1000);
+}
+
+function startMic() {
   const S = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!S){
-    showText("この端末は音声認識に対応していません");
+  if (!S) {
+    showLiveText("この端末は\n音声認識に対応していません");
     return;
   }
 
@@ -163,53 +295,64 @@ function startMic(){
   recognition.continuous = true;
   recognition.interimResults = true;
 
-  recognition.onresult = async e => {
-    let interimText = "";
-    let finalText = "";
+  recognition.onresult = async (e) => {
+    let interimParts = [];
+    let finalParts = [];
 
-    for(let i = e.resultIndex; i < e.results.length; i++){
-      const txt = e.results[i][0].transcript.trim();
-      if(e.results[i].isFinal){
-        finalText += txt;
-      }else{
-        interimText += txt;
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const txt = (e.results[i][0].transcript || "").trim();
+      if (!txt) continue;
+
+      if (e.results[i].isFinal) {
+        finalParts.push(txt);
+      } else {
+        interimParts.push(txt);
       }
     }
 
-    if(interimText){
-      showText(interimText);
+    const interimText = normalizeText(interimParts.join(" "));
+    const finalText = normalizeText(finalParts.join(" "));
+
+    if (interimText) {
+      showLiveText(interimText);
       resetIdleTimer();
     }
 
-    if(finalText){
+    if (finalText) {
       const now = Date.now();
-      resetIdleTimer();
 
-      if(finalText !== lastSentText || (now - lastSentTime) >= 3000){
+      if (finalText !== lastSentText || (now - lastSentTime) >= SEND_COOLDOWN_MS) {
         lastSentText = finalText;
         lastSentTime = now;
 
-        const row = await sendSpeechToSheet(finalText);
-        await showTabletMessage(finalText, row);
+        const chunks = splitIntoChunks(finalText, 22);
+        for (const chunk of chunks) {
+          showLiveText(chunk);
+          addHistory(chunk);
+          resetIdleTimer();
+          await sendSpeechToSheet(chunk);
+        }
       } else {
-        showText(finalText);
+        showLiveText(finalText);
       }
     }
   };
 
-  recognition.onerror = e => {
+  recognition.onerror = (e) => {
     console.log("Speech error:", e);
+    showStatus("音声待ち");
   };
 
   recognition.onend = () => {
-    if(!micPaused){
-      setTimeout(startMic, 200);
+    if (!micPaused) {
+      setTimeout(startMic, 300);
     }
   };
 
-  try{
+  try {
     recognition.start();
-  }catch(err){
+    showStatus("聞き取り中");
+  } catch (err) {
     console.log("Recognition start error:", err);
   }
 }
