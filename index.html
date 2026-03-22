@@ -31,7 +31,6 @@ html, body {
   height: 100vh;
   box-sizing: border-box;
   padding: 2vh 3vw;
-  display: flex;
   flex-direction: column;
   gap: 2vh;
 }
@@ -142,7 +141,8 @@ const SEND_COOLDOWN_MS = 2500;
 let recognition = null;
 let micPaused = false;
 
-let lastServerId = "";
+let lastFamilyId = "";
+let currentFamilyRow = 1;
 let lastSentText = "";
 let lastSentTime = 0;
 let idleTimer = null;
@@ -160,8 +160,8 @@ startBtn.onclick = () => {
   startBtn.style.display = "none";
   app.style.display = "flex";
   showLiveText(IDLE_MESSAGE);
-  startMic();
   pollSheet();
+  startMic();
 };
 
 function normalizeText(text) {
@@ -174,7 +174,7 @@ function normalizeText(text) {
     .trim();
 }
 
-function shortenText(text, max = 28) {
+function shortenText(text, max = 24) {
   const t = (text || "").replace(/\n/g, " ").trim();
   return t.length > max ? t.slice(0, max) + "…" : t;
 }
@@ -195,7 +195,7 @@ function splitIntoChunks(text, max = 22) {
       }
     }
   }
-  return chunks;
+  return chunks.filter(Boolean);
 }
 
 function showStatus(msg) {
@@ -213,7 +213,6 @@ function showFamilyText(msg) {
 function addHistory(text) {
   const one = shortenText(text, 24);
   if (!one) return;
-
   if (historyItems[0] === one) return;
 
   historyItems.unshift(one);
@@ -233,7 +232,24 @@ function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
     showLiveText(IDLE_MESSAGE);
+    sendDisplayUpdate(IDLE_MESSAGE, currentFamilyRow);
   }, IDLE_MS);
+}
+
+async function sendDisplayUpdate(text, row) {
+  try {
+    await fetch(POST_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        action: "display_update",
+        text: text || "",
+        row: row || 1
+      })
+    });
+  } catch (err) {
+    console.log("DISPLAY POST error:", err);
+  }
 }
 
 async function sendSpeechToSheet(text) {
@@ -242,14 +258,14 @@ async function sendSpeechToSheet(text) {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({
-        action: "speech",
         text: text
       })
     });
+
     return await res.json();
   } catch (err) {
     console.log("POST error:", err);
-    return {};
+    return { status: "NG", row: 1 };
   }
 }
 
@@ -260,20 +276,19 @@ async function pollSheet() {
 
     showStatus("接続中");
 
-    if (data.id !== undefined && data.id !== lastServerId) {
-      lastServerId = data.id;
+    // GAS仕様:
+    // { text: "（和）おはよう", id: "...", row: 3 }
 
-      if (data.familyMessage !== undefined) {
-        showFamilyText(data.familyMessage);
-      } else if (data.text && data.source === "family") {
-        showFamilyText(data.text);
-      }
+    if (data.row) {
+      currentFamilyRow = Number(data.row) || 1;
+    }
 
-      if (data.tabletMessage && data.source === "tablet") {
-        showLiveText(normalizeText(data.tabletMessage));
-        addHistory(data.tabletMessage);
-        resetIdleTimer();
-      }
+    if (data.text !== undefined) {
+      showFamilyText(data.text || "メッセージはありません");
+    }
+
+    if (data.id !== undefined && data.id !== lastFamilyId) {
+      lastFamilyId = data.id || "";
     }
   } catch (err) {
     console.log("GET error:", err);
@@ -316,24 +331,33 @@ function startMic() {
     if (interimText) {
       showLiveText(interimText);
       resetIdleTimer();
+      sendDisplayUpdate(interimText, currentFamilyRow);
     }
 
     if (finalText) {
       const now = Date.now();
+
+      if (finalText.length <= 1) {
+        showLiveText(finalText);
+        return;
+      }
 
       if (finalText !== lastSentText || (now - lastSentTime) >= SEND_COOLDOWN_MS) {
         lastSentText = finalText;
         lastSentTime = now;
 
         const chunks = splitIntoChunks(finalText, 22);
+
         for (const chunk of chunks) {
           showLiveText(chunk);
           addHistory(chunk);
           resetIdleTimer();
+          await sendDisplayUpdate(chunk, currentFamilyRow);
           await sendSpeechToSheet(chunk);
         }
       } else {
         showLiveText(finalText);
+        await sendDisplayUpdate(finalText, currentFamilyRow);
       }
     }
   };
