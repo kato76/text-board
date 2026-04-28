@@ -174,6 +174,47 @@ function normalizeText(text) {
     .trim();
 }
 
+/* =========================
+   NGワード判定
+   iPad表示前・履歴追加前・Sheet送信前に使用
+========================= */
+function isNgWord(text) {
+  const s = String(text || "").trim();
+
+  const ngPatterns = [
+    /死ね/i,
+    /しね/i,
+    /シネ/i,
+    /しねぇ/i,
+    /しねえ/i,
+    /シネェ/i,
+    /シネエ/i,
+
+    /殺す/i,
+    /ころす/i,
+    /消えろ/i,
+
+    /ばか/i,
+    /バカ/i,
+
+    /うるさ/i,
+    /うるさい/i,
+
+    /ちんこ/i,
+    /チンコ/i,
+    /ちんちん/i,
+    /チンチン/i,
+
+    /おっぱい/i,
+    /オッパイ/i,
+
+    /おしっこ/i,
+    /オシッコ/i
+  ];
+
+  return ngPatterns.some(p => p.test(s));
+}
+
 function shortenText(text, max = 24) {
   const t = (text || "").replace(/\n/g, " ").trim();
   return t.length > max ? t.slice(0, max) + "…" : t;
@@ -213,6 +254,7 @@ function showFamilyText(msg) {
 function addHistory(text) {
   const one = shortenText(text, 24);
   if (!one) return;
+  if (isNgWord(one)) return;
   if (historyItems[0] === one) return;
 
   historyItems.unshift(one);
@@ -237,6 +279,11 @@ function resetIdleTimer() {
 }
 
 async function sendDisplayUpdate(text, row) {
+  if (isNgWord(text)) {
+    console.log("NG display_update blocked:", text);
+    return;
+  }
+
   try {
     await fetch(POST_URL, {
       method: "POST",
@@ -253,6 +300,11 @@ async function sendDisplayUpdate(text, row) {
 }
 
 async function sendSpeechToSheet(text) {
+  if (isNgWord(text)) {
+    console.log("NG speech sheet blocked:", text);
+    return { status: "BLOCKED_NG", row: 1 };
+  }
+
   try {
     const res = await fetch(POST_URL, {
       method: "POST",
@@ -275,9 +327,6 @@ async function pollSheet() {
     const data = await res.json();
 
     showStatus("接続中");
-
-    // GAS仕様:
-    // { text: "（和）おはよう", id: "...", row: 3 }
 
     if (data.row) {
       currentFamilyRow = Number(data.row) || 1;
@@ -328,14 +377,26 @@ function startMic() {
     const interimText = normalizeText(interimParts.join(" "));
     const finalText = normalizeText(finalParts.join(" "));
 
+    // 途中認識：表示前にNGチェック
     if (interimText) {
+      if (isNgWord(interimText)) {
+        console.log("NG interim blocked:", interimText);
+        return;
+      }
+
       showLiveText(interimText);
       resetIdleTimer();
       sendDisplayUpdate(interimText, currentFamilyRow);
     }
 
+    // 確定認識：表示・履歴・Sheet送信前にNGチェック
     if (finalText) {
       const now = Date.now();
+
+      if (isNgWord(finalText)) {
+        console.log("NG final blocked:", finalText);
+        return;
+      }
 
       if (finalText.length <= 1) {
         showLiveText(finalText);
@@ -349,13 +410,24 @@ function startMic() {
         const chunks = splitIntoChunks(finalText, 22);
 
         for (const chunk of chunks) {
+          if (isNgWord(chunk)) {
+            console.log("NG chunk blocked:", chunk);
+            continue;
+          }
+
           showLiveText(chunk);
           addHistory(chunk);
           resetIdleTimer();
+
           await sendDisplayUpdate(chunk, currentFamilyRow);
           await sendSpeechToSheet(chunk);
         }
       } else {
+        if (isNgWord(finalText)) {
+          console.log("NG duplicate final blocked:", finalText);
+          return;
+        }
+
         showLiveText(finalText);
         await sendDisplayUpdate(finalText, currentFamilyRow);
       }
