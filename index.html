@@ -77,7 +77,7 @@ html, body {
 
 #liveText {
   flex: 1;
-  font-size: 9vw;
+  font-size: 10.8vw;
   line-height: 1.2;
   text-align: center;
   white-space: pre-wrap;
@@ -118,7 +118,7 @@ html, body {
 <div id="app">
   <div id="familyBox" class="panel">
     <div class="label">ご家族から</div>
-    <div id="familyText">メッセージはありません</div>
+    <div id="familyText"></div>
   </div>
 
   <div id="liveBox" class="panel">
@@ -186,7 +186,6 @@ function getIdleDateTimeText() {
 
 function showIdleDateTime() {
   isIdleMode = true;
-  liveTextEl.style.fontSize = "10.8vw";
   liveTextEl.innerText = getIdleDateTimeText();
 }
 
@@ -221,28 +220,21 @@ function isNgWord(text) {
     /しねえ/i,
     /シネェ/i,
     /シネエ/i,
-
     /殺す/i,
     /ころす/i,
     /消えろ/i,
-
     /ばか/i,
     /バカ/i,
-
     /うるさ/i,
     /うるさい/i,
-
     /うんこ/i,
     /ウンコ/i,
-
     /ちんこ/i,
     /チンコ/i,
     /ちんちん/i,
     /チンチン/i,
-
     /おっぱい/i,
     /オッパイ/i,
-
     /おしっこ/i,
     /オシッコ/i
   ];
@@ -280,12 +272,23 @@ function showStatus(msg) {
 
 function showLiveText(msg) {
   isIdleMode = false;
-  liveTextEl.style.fontSize = "10.8vw";
   liveTextEl.innerText = msg || "";
 }
 
 function showFamilyText(msg) {
-  familyTextEl.innerText = msg || "メッセージはありません";
+  let t = String(msg || "").trim();
+
+  // すでに付いている（和）は一度外す
+  t = t.replace(/^（和）/, "").trim();
+
+  // 「-」だけなら空欄
+  if (t === "-") {
+    familyTextEl.innerText = "";
+    return;
+  }
+
+  // 何か入力がある時は（和）を付ける
+  familyTextEl.innerText = t ? "（和）" + t : "";
 }
 
 function addHistory(text) {
@@ -370,7 +373,7 @@ async function pollSheet() {
     }
 
     if (data.text !== undefined) {
-      showFamilyText(data.text || "メッセージはありません");
+      showFamilyText(data.text || "");
     }
 
     if (data.id !== undefined && data.id !== lastFamilyId) {
