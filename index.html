@@ -213,30 +213,16 @@ function isNgWord(text) {
   const s = String(text || "").trim();
 
   const ngPatterns = [
-    /死ね/i,
-    /しね/i,
-    /シネ/i,
-    /しねぇ/i,
-    /しねえ/i,
-    /シネェ/i,
-    /シネエ/i,
-    /殺す/i,
-    /ころす/i,
-    /消えろ/i,
-    /ばか/i,
-    /バカ/i,
-    /うるさ/i,
-    /うるさい/i,
-    /うんこ/i,
-    /ウンコ/i,
-    /ちんこ/i,
-    /チンコ/i,
-    /ちんちん/i,
-    /チンチン/i,
-    /おっぱい/i,
-    /オッパイ/i,
-    /おしっこ/i,
-    /オシッコ/i
+    /死ね/i, /しね/i, /シネ/i, /しねぇ/i, /しねえ/i,
+    /シネェ/i, /シネエ/i,
+    /殺す/i, /ころす/i, /消えろ/i,
+    /ばか/i, /バカ/i,
+    /うるさ/i, /うるさい/i,
+    /うんこ/i, /ウンコ/i,
+    /ちんこ/i, /チンコ/i,
+    /ちんちん/i, /チンチン/i,
+    /おっぱい/i, /オッパイ/i,
+    /おしっこ/i, /オシッコ/i
   ];
 
   return ngPatterns.some(p => p.test(s));
@@ -282,7 +268,14 @@ async function getWeatherText() {
     return lastWeatherText;
   }
 
-  const url = "https://api.open-meteo.com/v1/forecast?latitude=34.6762&longitude=135.4866&current=temperature_2m,weather_code&timezone=Asia%2FTokyo";
+  const url =
+    "https://api.open-meteo.com/v1/forecast" +
+    "?latitude=34.6762" +
+    "&longitude=135.4866" +
+    "&current=temperature_2m,weather_code" +
+    "&hourly=precipitation_probability" +
+    "&forecast_days=1" +
+    "&timezone=Asia%2FTokyo";
 
   try {
     const res = await fetch(url);
@@ -321,7 +314,26 @@ async function getWeatherText() {
 
     const weather = weatherMap[code] || "天気";
 
-    lastWeatherText = `大阪市西区の天気\n${weather}　${temp}°C`;
+    let rainSoon = false;
+    if (data.hourly && data.hourly.time && data.hourly.precipitation_probability) {
+      const currentHour = new Date();
+      currentHour.setMinutes(0, 0, 0);
+
+      for (let i = 0; i < data.hourly.time.length; i++) {
+        const t = new Date(data.hourly.time[i]);
+        const prob = Number(data.hourly.precipitation_probability[i]);
+
+        if (t >= currentHour && t <= new Date(currentHour.getTime() + 60 * 60 * 1000)) {
+          if (prob >= 50) {
+            rainSoon = true;
+            break;
+          }
+        }
+      }
+    }
+
+    const rainText = rainSoon ? "、雨近い" : "";
+    lastWeatherText = `大阪市西区の天気\n${weather}　${temp}°C${rainText}`;
     lastWeatherTime = now;
 
     return lastWeatherText;
