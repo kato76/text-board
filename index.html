@@ -60,10 +60,7 @@ html, body {
   line-height: 1.25;
   white-space: pre-wrap;
   word-break: break-word;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  text-align: center;
 }
 
 #liveBox {
@@ -140,7 +137,7 @@ const GET_URL  = "https://script.google.com/macros/s/AKfycbwTDREKD4-sJAY-TmBdmnP
 const IDLE_MS = 60 * 1000;
 const HISTORY_MAX = 4;
 const SEND_COOLDOWN_MS = 2500;
-const WEATHER_CACHE_MS = 10 * 60 * 1000; // 天気は10分ごと
+const WEATHER_CACHE_MS = 10 * 60 * 1000;
 
 let recognition = null;
 let micPaused = false;
@@ -324,7 +321,7 @@ async function getWeatherText() {
 
     const weather = weatherMap[code] || "天気";
 
-    lastWeatherText = `大阪市西区の天気\n${weather}  ${temp}℃`;
+    lastWeatherText = `大阪市西区の天気\n${weather}　${temp}°C`;
     lastWeatherTime = now;
 
     return lastWeatherText;
