@@ -275,7 +275,54 @@ function showLiveText(msg) {
   liveTextEl.innerText = msg || "";
 }
 
-function showFamilyText(msg) {
+async function getWeatherText() {
+  const url = "https://api.open-meteo.com/v1/forecast?latitude=34.6762&longitude=135.4866&current=temperature_2m,relative_humidity_2m,weather_code&timezone=Asia%2FTokyo";
+
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const temp = data.current.temperature_2m;
+    const hum = data.current.relative_humidity_2m;
+    const code = data.current.weather_code;
+
+    const weatherMap = {
+      0: "快晴",
+      1: "晴れ",
+      2: "一部くもり",
+      3: "くもり",
+      45: "霧",
+      48: "霧",
+      51: "小雨",
+      53: "小雨",
+      55: "雨",
+      56: "雨",
+      57: "雨",
+      61: "雨",
+      63: "雨",
+      65: "強い雨",
+      66: "雨",
+      67: "強い雨",
+      71: "雪",
+      73: "雪",
+      75: "強い雪",
+      80: "にわか雨",
+      81: "にわか雨",
+      82: "強いにわか雨",
+      95: "雷雨",
+      96: "雷雨",
+      99: "雷雨"
+    };
+
+    const weather = weatherMap[code] || "天気";
+
+    return `大阪市西区の天気\n${weather} ${temp}℃ 湿度 ${hum}%`;
+  } catch (e) {
+    return "天気を取得できません";
+  }
+}
+
+async function showFamilyText(msg) {
   let t = String(msg || "").trim();
 
   // すでに付いている（和）は一度外す
@@ -284,6 +331,13 @@ function showFamilyText(msg) {
   // 「-」だけなら空欄
   if (t === "-") {
     familyTextEl.innerText = "";
+    return;
+  }
+
+  // 「天気」だけなら大阪市西区の天気を表示
+  if (t === "天気") {
+    familyTextEl.innerText = "天気を取得中...";
+    familyTextEl.innerText = await getWeatherText();
     return;
   }
 
@@ -373,7 +427,7 @@ async function pollSheet() {
     }
 
     if (data.text !== undefined) {
-      showFamilyText(data.text || "");
+      await showFamilyText(data.text || "");
     }
 
     if (data.id !== undefined && data.id !== lastFamilyId) {
