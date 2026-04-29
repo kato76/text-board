@@ -324,7 +324,7 @@ async function getWeatherText() {
         const prob = Number(data.hourly.precipitation_probability[i]);
 
         if (t >= currentHour && t <= new Date(currentHour.getTime() + 60 * 60 * 1000)) {
-          if (prob >= 50) {
+          if (prob >= 30) {
             rainSoon = true;
             break;
           }
