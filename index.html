@@ -76,12 +76,17 @@ html, body {
 }
 
 #liveText {
+  flex: 1;
   font-size: 9vw;
   line-height: 1.2;
   text-align: center;
   white-space: pre-wrap;
   word-break: break-word;
   overflow: hidden;
+
+  display: flex;
+  justify-content: center;   /* 左右中央 */
+  align-items: center;       /* 上下中央 */
 }
 
 #historyBox {
@@ -118,7 +123,7 @@ html, body {
 
   <div id="liveBox" class="panel">
     <div class="label">いまのことば</div>
-    <div id="liveText">何かしゃべってください。<br>2回くらい</div>
+    <div id="liveText"></div>
   </div>
 
   <div id="historyBox" class="panel">
@@ -133,7 +138,6 @@ html, body {
 const POST_URL = "https://script.google.com/macros/s/AKfycbwTDREKD4-sJAY-TmBdmnPSXtQBjNgaKKv_RI-APXlPxHseCNED9NkEPHOv5RipFDlH/exec";
 const GET_URL  = "https://script.google.com/macros/s/AKfycbwTDREKD4-sJAY-TmBdmnPSXtQBjNgaKKv_RI-APXlPxHseCNED9NkEPHOv5RipFDlH/exec";
 
-const IDLE_MESSAGE = "何かしゃべってください。\n2回くらい";
 const IDLE_MS = 60 * 1000;
 const HISTORY_MAX = 4;
 const SEND_COOLDOWN_MS = 2500;
@@ -146,6 +150,8 @@ let currentFamilyRow = 1;
 let lastSentText = "";
 let lastSentTime = 0;
 let idleTimer = null;
+let idleClockTimer = null;
+let isIdleMode = true;
 
 const startBtn = document.getElementById("start");
 const app = document.getElementById("app");
@@ -159,10 +165,39 @@ const historyItems = [];
 startBtn.onclick = () => {
   startBtn.style.display = "none";
   app.style.display = "flex";
-  showLiveText(IDLE_MESSAGE);
+  showIdleDateTime();
   pollSheet();
   startMic();
 };
+
+function getIdleDateTimeText() {
+  const now = new Date();
+  const week = ["日", "月", "火", "水", "木", "金", "土"];
+
+  const yy = String(now.getFullYear()).slice(-2);
+  const m = now.getMonth() + 1;
+  const d = now.getDate();
+  const w = week[now.getDay()];
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+
+  return `${yy}年${m}月${d}日(${w})\n${hh}:${mm}`;
+}
+
+function showIdleDateTime() {
+  isIdleMode = true;
+  liveTextEl.innerText = getIdleDateTimeText();
+}
+
+function startIdleClock() {
+  if (idleClockTimer) clearInterval(idleClockTimer);
+
+  idleClockTimer = setInterval(() => {
+    if (isIdleMode) {
+      showIdleDateTime();
+    }
+  }, 1000);
+}
 
 function normalizeText(text) {
   return (text || "")
@@ -174,10 +209,6 @@ function normalizeText(text) {
     .trim();
 }
 
-/* =========================
-   NGワード判定
-   iPad表示前・履歴追加前・Sheet送信前に使用
-========================= */
 function isNgWord(text) {
   const s = String(text || "").trim();
 
@@ -199,10 +230,10 @@ function isNgWord(text) {
 
     /うるさ/i,
     /うるさい/i,
-    
+
     /うんこ/i,
     /ウンコ/i,
-    
+
     /ちんこ/i,
     /チンコ/i,
     /ちんちん/i,
@@ -247,6 +278,7 @@ function showStatus(msg) {
 }
 
 function showLiveText(msg) {
+  isIdleMode = false;
   liveTextEl.innerText = msg || "";
 }
 
@@ -276,8 +308,8 @@ function addHistory(text) {
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    showLiveText(IDLE_MESSAGE);
-    sendDisplayUpdate(IDLE_MESSAGE, currentFamilyRow);
+    showIdleDateTime();
+    sendDisplayUpdate(getIdleDateTimeText(), currentFamilyRow);
   }, IDLE_MS);
 }
 
@@ -380,7 +412,6 @@ function startMic() {
     const interimText = normalizeText(interimParts.join(" "));
     const finalText = normalizeText(finalParts.join(" "));
 
-    // 途中認識：表示前にNGチェック
     if (interimText) {
       if (isNgWord(interimText)) {
         console.log("NG interim blocked:", interimText);
@@ -392,7 +423,6 @@ function startMic() {
       sendDisplayUpdate(interimText, currentFamilyRow);
     }
 
-    // 確定認識：表示・履歴・Sheet送信前にNGチェック
     if (finalText) {
       const now = Date.now();
 
@@ -403,6 +433,7 @@ function startMic() {
 
       if (finalText.length <= 1) {
         showLiveText(finalText);
+        resetIdleTimer();
         return;
       }
 
@@ -426,12 +457,8 @@ function startMic() {
           await sendSpeechToSheet(chunk);
         }
       } else {
-        if (isNgWord(finalText)) {
-          console.log("NG duplicate final blocked:", finalText);
-          return;
-        }
-
         showLiveText(finalText);
+        resetIdleTimer();
         await sendDisplayUpdate(finalText, currentFamilyRow);
       }
     }
@@ -456,6 +483,7 @@ function startMic() {
   }
 }
 
+startIdleClock();
 resetIdleTimer();
 </script>
 </body>
