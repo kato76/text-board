@@ -335,6 +335,12 @@ async function showFamilyText(msg) {
 
   t = t.replace(/^（和）/, "").trim();
 
+  if (t === "さっきの言葉消す" || t === "さっきの言葉を消す") {
+    historyItems.length = 0;
+    historyListEl.innerHTML = "";
+    return;
+  }
+
   if (t === "-") {
     familyTextEl.innerText = "";
     return;
