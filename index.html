@@ -186,6 +186,7 @@ function getIdleDateTimeText() {
 
 function showIdleDateTime() {
   isIdleMode = true;
+  liveTextEl.style.fontSize = "10.8vw";
   liveTextEl.innerText = getIdleDateTimeText();
 }
 
@@ -279,6 +280,7 @@ function showStatus(msg) {
 
 function showLiveText(msg) {
   isIdleMode = false;
+  liveTextEl.style.fontSize = "9vw";
   liveTextEl.innerText = msg || "";
 }
 
