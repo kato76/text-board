@@ -83,7 +83,6 @@ html, body {
   white-space: pre-wrap;
   word-break: break-word;
   overflow: hidden;
-
   display: flex;
   justify-content: center;
   align-items: center;
@@ -141,6 +140,7 @@ const GET_URL  = "https://script.google.com/macros/s/AKfycbwTDREKD4-sJAY-TmBdmnP
 const IDLE_MS = 60 * 1000;
 const HISTORY_MAX = 4;
 const SEND_COOLDOWN_MS = 2500;
+const WEATHER_CACHE_MS = 10 * 60 * 1000; // 天気は10分ごと
 
 let recognition = null;
 let micPaused = false;
@@ -152,6 +152,9 @@ let lastSentTime = 0;
 let idleTimer = null;
 let idleClockTimer = null;
 let isIdleMode = true;
+
+let lastWeatherText = "";
+let lastWeatherTime = 0;
 
 const startBtn = document.getElementById("start");
 const app = document.getElementById("app");
@@ -276,20 +279,25 @@ function showLiveText(msg) {
 }
 
 async function getWeatherText() {
-  const url = "https://api.open-meteo.com/v1/forecast?latitude=34.6762&longitude=135.4866&current=temperature_2m,relative_humidity_2m,weather_code&timezone=Asia%2FTokyo";
+  const now = Date.now();
+
+  if (lastWeatherText && (now - lastWeatherTime) < WEATHER_CACHE_MS) {
+    return lastWeatherText;
+  }
+
+  const url = "https://api.open-meteo.com/v1/forecast?latitude=34.6762&longitude=135.4866&current=temperature_2m,weather_code&timezone=Asia%2FTokyo";
 
   try {
     const res = await fetch(url);
     const data = await res.json();
 
-    const temp = data.current.temperature_2m;
-    const hum = data.current.relative_humidity_2m;
+    const temp = Math.round(data.current.temperature_2m);
     const code = data.current.weather_code;
 
     const weatherMap = {
       0: "快晴",
       1: "晴れ",
-      2: "一部くもり",
+      2: "くもり",
       3: "くもり",
       45: "霧",
       48: "霧",
@@ -308,7 +316,7 @@ async function getWeatherText() {
       75: "強い雪",
       80: "にわか雨",
       81: "にわか雨",
-      82: "強いにわか雨",
+      82: "強い雨",
       95: "雷雨",
       96: "雷雨",
       99: "雷雨"
@@ -316,32 +324,30 @@ async function getWeatherText() {
 
     const weather = weatherMap[code] || "天気";
 
-    return `大阪市西区の天気\n${weather} ${temp}℃ 湿度 ${hum}%`;
+    lastWeatherText = `大阪市西区の天気\n${weather}  ${temp}℃`;
+    lastWeatherTime = now;
+
+    return lastWeatherText;
   } catch (e) {
-    return "天気を取得できません";
+    return lastWeatherText || "大阪市西区の天気\n取得できません";
   }
 }
 
 async function showFamilyText(msg) {
   let t = String(msg || "").trim();
 
-  // すでに付いている（和）は一度外す
   t = t.replace(/^（和）/, "").trim();
 
-  // 「-」だけなら空欄
   if (t === "-") {
     familyTextEl.innerText = "";
     return;
   }
 
-  // 「天気」だけなら大阪市西区の天気を表示
   if (t === "天気") {
-    familyTextEl.innerText = "天気を取得中...";
     familyTextEl.innerText = await getWeatherText();
     return;
   }
 
-  // 何か入力がある時は（和）を付ける
   familyTextEl.innerText = t ? "（和）" + t : "";
 }
 
