@@ -63,13 +63,6 @@ html, body {
   text-align: center;
 }
 
-/* 天気表示だけ、枠の下線に当たらないよう少し上へ寄せる */
-#familyText.weatherText {
-  font-size: 8.8vw;
-  line-height: 1.08;
-  transform: translateY(-0.8vh);
-}
-
 #liveBox {
   flex: 0 0 38vh;
   background: #001018;
@@ -145,6 +138,10 @@ const IDLE_MS = 60 * 1000;
 const HISTORY_MAX = 4;
 const SEND_COOLDOWN_MS = 2500;
 const WEATHER_CACHE_MS = 10 * 60 * 1000;
+
+// 「いまのことば」は長く出しすぎない
+const LIVE_MAX_CHARS = 14;
+const DISPLAY_CHUNK_DELAY_MS = 450;
 
 let recognition = null;
 let micPaused = false;
@@ -246,7 +243,7 @@ function splitIntoChunks(text, max = 22) {
   const raw = normalizeText(text).replace(/\n/g, " ");
   if (!raw) return [];
 
-  const parts = raw.split(/(?<=[。！？])/).map(s => s.trim()).filter(Boolean);
+  const parts = raw.split(/(?<=[。！？、，])/).map(s => s.trim()).filter(Boolean);
   const chunks = [];
 
   for (const part of parts) {
@@ -259,6 +256,17 @@ function splitIntoChunks(text, max = 22) {
     }
   }
   return chunks.filter(Boolean);
+}
+
+// 長い音声認識結果から、最後の短いかたまりだけを「いまのことば」に出す
+function getLiveChunk(text) {
+  const chunks = splitIntoChunks(text, LIVE_MAX_CHARS);
+  if (chunks.length === 0) return "";
+  return chunks[chunks.length - 1];
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function showStatus(msg) {
@@ -379,9 +387,6 @@ async function showFamilyText(msg) {
 
   t = t.replace(/^（和）/, "").trim();
 
-  // 通常は天気用レイアウトを解除
-  familyTextEl.classList.remove("weatherText");
-
   if (t === "さっきの言葉消す" || t === "さっきの言葉を消す") {
     historyItems.length = 0;
     historyListEl.innerHTML = "";
@@ -394,7 +399,6 @@ async function showFamilyText(msg) {
   }
 
   if (t === "天気") {
-    familyTextEl.classList.add("weatherText");
     familyTextEl.innerText = await getWeatherText();
     return;
   }
@@ -529,14 +533,18 @@ function startMic() {
     const finalText = normalizeText(finalParts.join(" "));
 
     if (interimText) {
-      if (isNgWord(interimText)) {
+      const liveChunk = getLiveChunk(interimText);
+
+      if (isNgWord(interimText) || isNgWord(liveChunk)) {
         console.log("NG interim blocked:", interimText);
         return;
       }
 
-      showLiveText(interimText);
-      resetIdleTimer();
-      sendDisplayUpdate(interimText, currentFamilyRow);
+      if (liveChunk) {
+        showLiveText(liveChunk);
+        resetIdleTimer();
+        sendDisplayUpdate(liveChunk, currentFamilyRow);
+      }
     }
 
     if (finalText) {
@@ -548,7 +556,8 @@ function startMic() {
       }
 
       if (finalText.length <= 1) {
-        showLiveText(finalText);
+        const liveChunk = getLiveChunk(finalText);
+        showLiveText(liveChunk || finalText);
         resetIdleTimer();
         return;
       }
@@ -557,7 +566,7 @@ function startMic() {
         lastSentText = finalText;
         lastSentTime = now;
 
-        const chunks = splitIntoChunks(finalText, 22);
+        const chunks = splitIntoChunks(finalText, LIVE_MAX_CHARS);
 
         for (const chunk of chunks) {
           if (isNgWord(chunk)) {
@@ -571,11 +580,16 @@ function startMic() {
 
           await sendDisplayUpdate(chunk, currentFamilyRow);
           await sendSpeechToSheet(chunk);
+
+          if (chunks.length > 1) {
+            await sleep(DISPLAY_CHUNK_DELAY_MS);
+          }
         }
       } else {
-        showLiveText(finalText);
+        const liveChunk = getLiveChunk(finalText);
+        showLiveText(liveChunk || finalText);
         resetIdleTimer();
-        await sendDisplayUpdate(finalText, currentFamilyRow);
+        await sendDisplayUpdate(liveChunk || finalText, currentFamilyRow);
       }
     }
   };
