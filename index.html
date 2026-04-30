@@ -316,25 +316,48 @@ async function getWeatherText() {
 
     const weather = weatherMap[code] || "天気";
 
-    let rainSoon = false;
+    // 現在の降水確率より、これから先の降水確率が上がる時だけ表示を強める
+    let popNow = 0;
+    let maxFuturePop = 0;
+    let popDiff = 0;
+
     if (data.hourly && data.hourly.time && data.hourly.precipitation_probability) {
       const currentHour = new Date();
       currentHour.setMinutes(0, 0, 0);
 
+      let currentIndex = -1;
+
       for (let i = 0; i < data.hourly.time.length; i++) {
         const t = new Date(data.hourly.time[i]);
-        const prob = Number(data.hourly.precipitation_probability[i]);
+        if (t.getTime() === currentHour.getTime()) {
+          currentIndex = i;
+          break;
+        }
+      }
 
-        if (t >= currentHour && t <= new Date(currentHour.getTime() + 60 * 60 * 1000)) {
-          if (prob >= 30) {
-            rainSoon = true;
-            break;
-          }
+      if (currentIndex >= 0) {
+        popNow = Number(data.hourly.precipitation_probability[currentIndex] || 0);
+
+        const futurePops = [];
+        for (let i = currentIndex + 1; i <= currentIndex + 3 && i < data.hourly.precipitation_probability.length; i++) {
+          futurePops.push(Number(data.hourly.precipitation_probability[i] || 0));
+        }
+
+        if (futurePops.length > 0) {
+          maxFuturePop = Math.max(...futurePops);
+          popDiff = maxFuturePop - popNow;
         }
       }
     }
 
-    const rainText = rainSoon ? "、雨近い" : "";
+    let rainText = "";
+
+    if (popDiff >= 20 && maxFuturePop >= 50) {
+      rainText = "、雨強く";
+    } else if (popDiff >= 10 && maxFuturePop >= 40) {
+      rainText = "、雨近い";
+    }
+
     lastWeatherText = `大阪市西区の天気\n${weather}　${temp}°C${rainText}`;
     lastWeatherTime = now;
 
