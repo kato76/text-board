@@ -63,6 +63,13 @@ html, body {
   text-align: center;
 }
 
+/* 天気表示だけ、枠の下線に当たらないよう少し上へ寄せる */
+#familyText.weatherText {
+  font-size: 8.8vw;
+  line-height: 1.08;
+  transform: translateY(-0.8vh);
+}
+
 #liveBox {
   flex: 0 0 38vh;
   background: #001018;
@@ -372,6 +379,9 @@ async function showFamilyText(msg) {
 
   t = t.replace(/^（和）/, "").trim();
 
+  // 通常は天気用レイアウトを解除
+  familyTextEl.classList.remove("weatherText");
+
   if (t === "さっきの言葉消す" || t === "さっきの言葉を消す") {
     historyItems.length = 0;
     historyListEl.innerHTML = "";
@@ -384,6 +394,7 @@ async function showFamilyText(msg) {
   }
 
   if (t === "天気") {
+    familyTextEl.classList.add("weatherText");
     familyTextEl.innerText = await getWeatherText();
     return;
   }
