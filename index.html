@@ -63,6 +63,13 @@ html, body {
   text-align: center;
 }
 
+/* 天気は2行になるので、通常メッセージより少し小さくして下に余白を作る */
+#familyText.weatherText {
+  font-size: min(7.2vw, 4.4vh);
+  line-height: 1.15;
+  padding-bottom: 1vh;
+}
+
 #liveBox {
   flex: 0 0 38vh;
   background: #001018;
@@ -370,6 +377,9 @@ async function getWeatherText() {
 async function showFamilyText(msg) {
   let t = String(msg || "").trim();
 
+  // 通常は天気用の小さめ表示を解除
+  familyTextEl.classList.remove("weatherText");
+
   t = t.replace(/^（和）/, "").trim();
 
   if (t === "さっきの言葉消す" || t === "さっきの言葉を消す") {
@@ -384,6 +394,7 @@ async function showFamilyText(msg) {
   }
 
   if (t === "天気") {
+    familyTextEl.classList.add("weatherText");
     familyTextEl.innerText = await getWeatherText();
     return;
   }
