@@ -50,9 +50,11 @@ html, body {
 }
 
 #familyBox {
-  flex: 0 0 23vh;
+  flex: 0 0 26vh;
   background: #111;
   border-color: #888;
+  display: flex;
+  flex-direction: column;
 }
 
 #familyText {
@@ -63,15 +65,19 @@ html, body {
   text-align: center;
 }
 
-/* 天気は2行になるので、通常メッセージより少し小さくして下に余白を作る */
+/* 天気は2行になるので、少しだけ小さくしつつ大きめに表示する */
 #familyText.weatherText {
-  font-size: min(7.2vw, 4.4vh);
-  line-height: 1.15;
-  padding-bottom: 1vh;
+  flex: 1;
+  font-size: min(8.2vw, 6.2vh);
+  line-height: 1.08;
+  padding-bottom: 0.8vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 #liveBox {
-  flex: 0 0 38vh;
+  flex: 0 0 35vh;
   background: #001018;
   border-color: #4da3ff;
   display: flex;
