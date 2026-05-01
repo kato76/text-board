@@ -334,7 +334,6 @@ async function getWeatherText() {
 
     const weather = weatherMap[code] || "天気";
 
-    // 現在の降水確率より、これから先の降水確率が上がる時だけ表示を強める
     let popNow = 0;
     let maxFuturePop = 0;
     let popDiff = 0;
@@ -400,16 +399,22 @@ async function sendWeatherTextToSheetByInterval(weatherText) {
 
   const isFirstWriteThisSession = !firstWeatherWriteDone;
 
-  // 最初の1回はすぐ書く
+  // 最初の1回はすぐ送る
   // 2回目以降は WEATHER_SHEET_WRITE_MS の間隔を守る
   if (!isFirstWriteThisSession && (now - lastWriteTime) < WEATHER_SHEET_WRITE_MS) {
+    showStatus("天気は送信済み");
     return;
   }
 
+  showStatus("天気をシートへ送信中");
+
   try {
-    await fetch(POST_URL, {
+    fetch(POST_URL, {
       method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      mode: "no-cors",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
       body: JSON.stringify({
         action: "writeWeatherFromIpad",
         weatherText: text,
@@ -421,8 +426,11 @@ async function sendWeatherTextToSheetByInterval(weatherText) {
     localStorage.setItem("lastWeatherSheetWriteTime", String(now));
     localStorage.setItem("lastWeatherSheetText", text);
 
-    console.log("weather written to sheet:", text);
+    showStatus("天気をシートへ送信済み");
+    console.log("weather sent to sheet:", text);
+
   } catch (err) {
+    showStatus("天気送信エラー");
     console.log("weather sheet POST error:", err);
   }
 }
@@ -432,7 +440,6 @@ async function showFamilyText(msg) {
 
   t = t.replace(/^（和）/, "").trim();
 
-  // 通常は天気用レイアウトを解除
   familyTextEl.classList.remove("weatherText");
 
   if (t === "さっきの言葉消す" || t === "さっきの言葉を消す") {
