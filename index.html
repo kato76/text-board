@@ -168,7 +168,7 @@ let isIdleMode = true;
 let lastWeatherText = "";
 let lastWeatherTime = 0;
 
-// このページを開いてから、最初の天気をスプレッドシートへ書いたかどうか
+// このページを開いてから、最初の天気を送ったかどうか
 let firstWeatherWriteDone = false;
 
 const startBtn = document.getElementById("start");
@@ -384,14 +384,13 @@ async function getWeatherText() {
   }
 }
 
-// iPadに表示した天気を、指定間隔でスプレッドシートへ書く
-// ただし、このページを開いてから最初の1回だけはすぐ書く
-async function sendWeatherTextToSheetByInterval(weatherText) {
+// iPadに表示した天気を、既存のdisplay_updateルートで送る
+// 画面に「天気送信済み」などは表示しない
+function sendWeatherDisplayUpdateByInterval(weatherText) {
   const text = String(weatherText || "").trim();
 
   if (!text) return;
   if (text.includes("取得できません")) return;
-  if (text.includes("天気を取得できません")) return;
   if (text.includes("天気未取得")) return;
 
   const now = Date.now();
@@ -402,37 +401,14 @@ async function sendWeatherTextToSheetByInterval(weatherText) {
   // 最初の1回はすぐ送る
   // 2回目以降は WEATHER_SHEET_WRITE_MS の間隔を守る
   if (!isFirstWriteThisSession && (now - lastWriteTime) < WEATHER_SHEET_WRITE_MS) {
-    showStatus("天気は送信済み");
     return;
   }
 
-  showStatus("天気をシートへ送信中");
+  firstWeatherWriteDone = true;
+  localStorage.setItem("lastWeatherSheetWriteTime", String(now));
+  localStorage.setItem("lastWeatherSheetText", text);
 
-  try {
-    fetch(POST_URL, {
-      method: "POST",
-      mode: "no-cors",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8"
-      },
-      body: JSON.stringify({
-        action: "writeWeatherFromIpad",
-        weatherText: text,
-        row: currentFamilyRow || 1
-      })
-    });
-
-    firstWeatherWriteDone = true;
-    localStorage.setItem("lastWeatherSheetWriteTime", String(now));
-    localStorage.setItem("lastWeatherSheetText", text);
-
-    showStatus("天気をシートへ送信済み");
-    console.log("weather sent to sheet:", text);
-
-  } catch (err) {
-    showStatus("天気送信エラー");
-    console.log("weather sheet POST error:", err);
-  }
+  sendDisplayUpdate(text, currentFamilyRow);
 }
 
 async function showFamilyText(msg) {
@@ -459,9 +435,9 @@ async function showFamilyText(msg) {
     const weatherText = await getWeatherText();
     familyTextEl.innerText = weatherText;
 
-    // iPadに表示した天気を、そのままスプレッドシートへ記録
-    // 初回はすぐ、2回目以降は10分ごと
-    sendWeatherTextToSheetByInterval(weatherText);
+    // 天気も既存のdisplay_updateルートで送る
+    // GAS側で天気ならG/H列にも書く
+    sendWeatherDisplayUpdateByInterval(weatherText);
 
     return;
   }
