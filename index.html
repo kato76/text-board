@@ -148,12 +148,6 @@ const SEND_COOLDOWN_MS = 2500;
 // iPad画面側の天気取得間隔：10分ごと
 const WEATHER_CACHE_MS = 10 * 60 * 1000;
 
-// スプレッドシートへ天気を書く間隔：まずは10分ごと
-const WEATHER_SHEET_WRITE_MS = 10 * 60 * 1000;
-
-// うまくいったら、上の1行をこれに変更
-// const WEATHER_SHEET_WRITE_MS = 2 * 60 * 60 * 1000;
-
 let recognition = null;
 let micPaused = false;
 
@@ -167,9 +161,6 @@ let isIdleMode = true;
 
 let lastWeatherText = "";
 let lastWeatherTime = 0;
-
-// このページを開いてから、最初の天気を送ったかどうか
-let firstWeatherWriteDone = false;
 
 const startBtn = document.getElementById("start");
 const app = document.getElementById("app");
@@ -334,6 +325,7 @@ async function getWeatherText() {
 
     const weather = weatherMap[code] || "天気";
 
+    // 現在の降水確率より、これから先の降水確率が上がる時だけ表示を強める
     let popNow = 0;
     let maxFuturePop = 0;
     let popDiff = 0;
@@ -384,38 +376,12 @@ async function getWeatherText() {
   }
 }
 
-// iPadに表示した天気を、既存のdisplay_updateルートで送る
-// 画面に「天気送信済み」などは表示しない
-function sendWeatherDisplayUpdateByInterval(weatherText) {
-  const text = String(weatherText || "").trim();
-
-  if (!text) return;
-  if (text.includes("取得できません")) return;
-  if (text.includes("天気未取得")) return;
-
-  const now = Date.now();
-  const lastWriteTime = Number(localStorage.getItem("lastWeatherSheetWriteTime") || 0);
-
-  const isFirstWriteThisSession = !firstWeatherWriteDone;
-
-  // 最初の1回はすぐ送る
-  // 2回目以降は WEATHER_SHEET_WRITE_MS の間隔を守る
-  if (!isFirstWriteThisSession && (now - lastWriteTime) < WEATHER_SHEET_WRITE_MS) {
-    return;
-  }
-
-  firstWeatherWriteDone = true;
-  localStorage.setItem("lastWeatherSheetWriteTime", String(now));
-  localStorage.setItem("lastWeatherSheetText", text);
-
-  sendDisplayUpdate(text, currentFamilyRow);
-}
-
 async function showFamilyText(msg) {
   let t = String(msg || "").trim();
 
   t = t.replace(/^（和）/, "").trim();
 
+  // 通常は天気用レイアウトを解除
   familyTextEl.classList.remove("weatherText");
 
   if (t === "さっきの言葉消す" || t === "さっきの言葉を消す") {
@@ -435,9 +401,8 @@ async function showFamilyText(msg) {
     const weatherText = await getWeatherText();
     familyTextEl.innerText = weatherText;
 
-    // 天気も既存のdisplay_updateルートで送る
-    // GAS側で天気ならG/H列にも書く
-    sendWeatherDisplayUpdateByInterval(weatherText);
+    // E列に天気を書く
+    sendDisplayUpdate(weatherText, currentFamilyRow);
 
     return;
   }
@@ -466,9 +431,13 @@ function addHistory(text) {
 
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer);
+
   idleTimer = setTimeout(() => {
     showIdleDateTime();
-    sendDisplayUpdate(getIdleDateTimeText(), currentFamilyRow);
+
+    // 待機画面の日時はスプレッドシートへ送らない。
+    // ここで送ると、E列の天気が日時で上書きされるため。
+    // sendDisplayUpdate(getIdleDateTimeText(), currentFamilyRow);
   }, IDLE_MS);
 }
 
