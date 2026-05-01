@@ -148,6 +148,9 @@ const SEND_COOLDOWN_MS = 2500;
 // iPad画面側の天気取得間隔：10分ごと
 const WEATHER_CACHE_MS = 10 * 60 * 1000;
 
+// スプレッドシートE列への天気書き込み：1時間ごと
+const WEATHER_SHEET_WRITE_MS = 60 * 60 * 1000;
+
 let recognition = null;
 let micPaused = false;
 
@@ -376,6 +379,18 @@ async function getWeatherText() {
   }
 }
 
+function shouldWriteWeatherToSheet() {
+  const now = Date.now();
+  const lastWriteTime = Number(localStorage.getItem("lastWeatherSheetWriteTime") || 0);
+
+  if ((now - lastWriteTime) >= WEATHER_SHEET_WRITE_MS) {
+    localStorage.setItem("lastWeatherSheetWriteTime", String(now));
+    return true;
+  }
+
+  return false;
+}
+
 async function showFamilyText(msg) {
   let t = String(msg || "").trim();
 
@@ -401,8 +416,10 @@ async function showFamilyText(msg) {
     const weatherText = await getWeatherText();
     familyTextEl.innerText = weatherText;
 
-    // E列に天気を書く
-    sendDisplayUpdate(weatherText, currentFamilyRow);
+    // E列への天気書き込みは1時間ごと
+    if (shouldWriteWeatherToSheet()) {
+      sendDisplayUpdate(weatherText, currentFamilyRow);
+    }
 
     return;
   }
