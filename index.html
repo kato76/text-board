@@ -141,20 +141,10 @@ html, body {
 const POST_URL = "https://script.google.com/macros/s/AKfycbwTDREKD4-sJAY-TmBdmnPSXtQBjNgaKKv_RI-APXlPxHseCNED9NkEPHOv5RipFDlH/exec";
 const GET_URL  = "https://script.google.com/macros/s/AKfycbwTDREKD4-sJAY-TmBdmnPSXtQBjNgaKKv_RI-APXlPxHseCNED9NkEPHOv5RipFDlH/exec";
 
-const IDLE_MS =  * 1000;
+const IDLE_MS = 60 * 1000;
 const HISTORY_MAX = 4;
 const SEND_COOLDOWN_MS = 2500;
-
-// iPad画面側の天気取得間隔：10分ごと
-// これは変えない
-const WEATHER_CACHE_MS = 10 *  * 1000;
-
-// スプレッドシートへ天気を書く間隔
-// まずは10分ごとでテスト
-const WEATHER_SHEET_WRITE_MS = 10 * 60 * 1000;
-
-// うまくいったら、あとで上の1行をこれに変更
-// const WEATHER_SHEET_WRITE_MS = 2 * 60 * 60 * 1000;
+const WEATHER_CACHE_MS = 10 * 60 * 1000;
 
 let recognition = null;
 let micPaused = false;
@@ -169,10 +159,6 @@ let isIdleMode = true;
 
 let lastWeatherText = "";
 let lastWeatherTime = 0;
-
-// このページを開いてから、最初の天気をスプレッドシートへ書いたかどうか
-// false の間は、前回記録時刻に関係なく、最初の1回をすぐ書く
-let firstWeatherWriteDone = false;
 
 const startBtn = document.getElementById("start");
 const app = document.getElementById("app");
@@ -388,49 +374,6 @@ async function getWeatherText() {
   }
 }
 
-// iPadに表示した天気を、指定間隔でスプレッドシートへ書く
-// ただし、iPad起動後の最初の1回だけは、すぐ書く
-async function sendWeatherTextToSheetByInterval(weatherText) {
-  const text = String(weatherText || "").trim();
-
-  if (!text) return;
-  if (text.includes("取得できません")) return;
-  if (text.includes("天気を取得できません")) return;
-  if (text.includes("天気未取得")) return;
-
-  const now = Date.now();
-  const lastWriteTime = Number(localStorage.getItem("lastWeatherSheetWriteTime") || 0);
-
-  // iPadでこのページを開いてから最初の1回は、前回時刻に関係なくすぐ書く
-  const isFirstWriteThisSession = !firstWeatherWriteDone;
-
-  // 2回目以降は、指定時間が経つまで書かない
-  if (!isFirstWriteThisSession && (now - lastWriteTime) < WEATHER_SHEET_WRITE_MS) {
-    return;
-  }
-
-  try {
-    await fetch(POST_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "writeWeatherFromIpad",
-        weatherText: text,
-        row: currentFamilyRow || 1
-      })
-    });
-
-    firstWeatherWriteDone = true;
-    localStorage.setItem("lastWeatherSheetWriteTime", String(now));
-    localStorage.setItem("lastWeatherSheetText", text);
-
-    console.log("weather written to sheet:", text);
-
-  } catch (err) {
-    console.log("weather sheet POST error:", err);
-  }
-}
-
 async function showFamilyText(msg) {
   let t = String(msg || "").trim();
 
@@ -452,14 +395,7 @@ async function showFamilyText(msg) {
 
   if (t === "天気") {
     familyTextEl.classList.add("weatherText");
-
-    const weatherText = await getWeatherText();
-    familyTextEl.innerText = weatherText;
-
-    // iPadに表示した天気を、そのままスプレッドシートへ記録
-    // 初回はすぐ書き、2回目以降は WEATHER_SHEET_WRITE_MS の間隔を守る
-    sendWeatherTextToSheetByInterval(weatherText);
-
+    familyTextEl.innerText = await getWeatherText();
     return;
   }
 
